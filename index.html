@@ -285,13 +285,60 @@
   <main id="main"></main>
 </div>
 
+<div id="authGate" class="overlay" style="z-index:200;display:none;">
+  <div class="modal" style="text-align:center;">
+    <h3>👋 Welcome to My Family</h3>
+    <p class="helpText" id="authGateMsg">Sign in with Google to sync this calendar across every device in your household.</p>
+    <div id="authGateBody"></div>
+    <div class="helpText" id="authGateError" style="color:#c0392b;margin-top:10px;"></div>
+  </div>
+</div>
+
+<script type="module">
+  // Firebase (Google Sign-In + Firestore sync). Loaded as an ES module
+  // straight from Google's CDN, so no build step / npm install is needed.
+  // This block only sets things up and hands them to the classic script
+  // below via window.__firebase — the rest of the app is unchanged.
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
+  import {
+    getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut
+  } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
+  import {
+    getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, arrayUnion, serverTimestamp
+  } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyDpPwTMzQUaDPpmH-wdtcTqB9xDqY0DBuQ",
+    authDomain: "my-family-app-c4594.firebaseapp.com",
+    projectId: "my-family-app-c4594",
+    storageBucket: "my-family-app-c4594.firebasestorage.app",
+    messagingSenderId: "611724816561",
+    appId: "1:611724816561:web:76d7e5703e0b0aac0d3290"
+  };
+
+  try{
+    const fbApp = initializeApp(firebaseConfig);
+    const auth = getAuth(fbApp);
+    const db = getFirestore(fbApp);
+    window.__firebase = {
+      auth, db, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut,
+      doc, getDoc, setDoc, updateDoc, onSnapshot, arrayUnion, serverTimestamp
+    };
+  }catch(e){
+    console.error("Firebase failed to initialize:", e);
+    window.__firebaseInitError = e;
+  }
+  window.dispatchEvent(new Event("firebaseReady"));
+</script>
+
 <script>
 /* =========================================================================
    FAMILY KITCHEN CALENDAR — single-file app
-   - Runs entirely client-side. All family data (profiles, chores, lists,
-     meals, manual events, settings) is stored in this browser's
-     localStorage, so it lives on whichever tablet/device has this page
-     open. There is no paid server behind this.
+   - Runs entirely client-side. Family data (profiles, chores, lists,
+     meals, manual events, settings) is kept in this browser's
+     localStorage AND, once you sign in with Google, synced live to a
+     Firestore document shared by everyone in your household — so
+     signing in on another device shows the same calendar automatically.
    - Calendar sync (Google / Outlook) works by fetching your calendar's
      public ICS feed URL through a free public CORS-proxy, since browsers
      block direct cross-origin fetches to calendar.google.com/outlook.
@@ -339,6 +386,15 @@ function defaultState(){
 }
 
 let state = loadState();
+
+// --- Account / household sync state (see AUTH / HOUSEHOLD SYNC block near
+// the bottom of this file for the functions that use these). ---
+let householdCode = null;       // Firestore household doc id once joined/created
+let currentUser = null;         // Firebase Auth user object once signed in
+let householdUnsub = null;      // unsubscribe fn for the live Firestore listener
+let applyingRemoteUpdate = false; // true while merging a remote change, to avoid re-echoing it back
+let appBooted = false;          // true once boot() has run at least once
+
 function loadState(){
   try{
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -356,6 +412,16 @@ function loadState(){
 }
 function saveState(){
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  // If signed in and part of a household, also push to Firestore (debounced
+  // so rapid edits don't spam the network) so other devices stay in sync.
+  if(householdCode && !applyingRemoteUpdate && window.__firebase){
+    clearTimeout(window.__remoteWriteTimer);
+    window.__remoteWriteTimer = setTimeout(()=>{
+      const { db, doc, setDoc } = window.__firebase;
+      setDoc(doc(db, "households", householdCode, "data", "state"), state)
+        .catch(e=> console.warn("Cloud sync failed, change is still saved locally:", e));
+    }, 800);
+  }
 }
 
 /* ---------------------------- date helpers ---------------------------- */
@@ -1319,6 +1385,21 @@ function settingsHTML(){
       <p class="helpText">Photos are resized and stored right on this device (not uploaded anywhere) — keep it to a reasonable number, since browser storage is limited (roughly 20-30 photos is a safe range).</p>
     </div>
 
+    <div class="card" id="householdCard">
+      <h3><span class="titleGroup"><span class="iconBadge" style="background:#dcf5ec;color:#12726e">👪</span>Family Account</span></h3>
+      ${window.__firebase && currentUser ? `
+        <p class="helpText">Signed in as <b>${escapeHtml(currentUser.email||currentUser.displayName||"you")}</b>.</p>
+        ${householdCode ? `
+          <p class="helpText">Invite code — share this with family so their sign-in joins <i>this same</i> calendar instead of starting a new one:</p>
+          <div class="settRow" style="border:none;">
+            <input type="text" readonly value="${escapeHtml(householdCode)}" style="font-weight:700;font-size:20px;letter-spacing:2px;text-align:center;flex:none;width:150px;border:1px solid var(--line);border-radius:8px;padding:8px;">
+            <button class="miniBtn" id="copyHouseholdCodeBtn">📋 Copy</button>
+          </div>
+        ` : `<p class="helpText">Not part of a household yet.</p>`}
+        <button class="miniBtn danger" id="signOutBtn" style="margin-top:12px;">Sign out</button>
+      ` : `<p class="helpText">Not signed in — this device is using local-only storage.</p>`}
+    </div>
+
     <div class="card">
       <h3>Backup / Move to another device</h3>
       <p class="helpText">This data lives only on this device's browser. Use these to back it up or copy it to another tablet/phone.</p>
@@ -1329,6 +1410,19 @@ function settingsHTML(){
   </div>`;
 }
 function attachSettingsEvents(){
+  const copyCodeBtn=document.getElementById("copyHouseholdCodeBtn");
+  if(copyCodeBtn) copyCodeBtn.onclick=async ()=>{
+    try{
+      await navigator.clipboard.writeText(householdCode);
+      copyCodeBtn.textContent="✓ Copied!";
+      setTimeout(()=>{ copyCodeBtn.textContent="📋 Copy"; }, 1500);
+    }catch(e){ /* clipboard API may be unavailable; the code is still visible/selectable */ }
+  };
+  const signOutBtn=document.getElementById("signOutBtn");
+  if(signOutBtn) signOutBtn.onclick=()=>{
+    if(window.__firebase) window.__firebase.signOut(window.__firebase.auth);
+  };
+
   document.querySelectorAll("[data-profname]").forEach(inp=> inp.addEventListener("change",()=>{
     profileById(inp.dataset.profname).name = inp.value; saveState(); renderGreeting();
   }));
@@ -1614,7 +1708,157 @@ function boot(){
   setInterval(()=> syncAllFeeds(false), Math.max(5,state.settings.syncMinutes||20)*60*1000);
   setInterval(checkIdleForScreensaver, 15000);
 }
-boot();
+
+/* =========================================================================
+   AUTH / HOUSEHOLD SYNC
+   Gates the whole app behind Google Sign-In. Once signed in, a user either
+   creates a new household (which mints a short invite code) or joins an
+   existing one by entering that code. Everyone in the same household
+   shares one Firestore document that's kept live via onSnapshot, so any
+   change on one device shows up on every other signed-in device within a
+   second or two. If Firebase itself fails to load/initialize (offline,
+   ad-blocker, etc.) the app still boots normally using localStorage only.
+   ========================================================================= */
+function showAuthGate(bodyHtml){
+  const gate=document.getElementById("authGate");
+  if(gate) gate.style.display="flex";
+  const body=document.getElementById("authGateBody");
+  if(body) body.innerHTML=bodyHtml;
+}
+function hideAuthGate(){
+  const gate=document.getElementById("authGate");
+  if(gate) gate.style.display="none";
+}
+function setAuthError(msg){
+  const el=document.getElementById("authGateError");
+  if(el) el.textContent = msg||"";
+}
+function fb(){ return window.__firebase; }
+
+function renderSignInScreen(){
+  setAuthError("");
+  showAuthGate(`<button class="addBtn" id="googleSignInBtn" style="width:100%;margin-top:10px;">Sign in with Google</button>`);
+  const btn=document.getElementById("googleSignInBtn");
+  if(btn) btn.onclick = async ()=>{
+    setAuthError("");
+    const { auth, GoogleAuthProvider, signInWithPopup } = fb();
+    try{ await signInWithPopup(auth, new GoogleAuthProvider()); }
+    catch(e){ setAuthError("Sign-in failed: " + (e&&e.message?e.message:e)); }
+  };
+}
+function renderLoadingScreen(msg){
+  setAuthError("");
+  showAuthGate(`<p class="helpText">${escapeHtml(msg||"Loading your family's calendar…")}</p>`);
+}
+function renderHouseholdChoiceScreen(){
+  setAuthError("");
+  showAuthGate(`
+    <p class="helpText">Create a new household calendar, or join one someone in your family already started.</p>
+    <button class="addBtn" id="createHouseholdBtn" style="width:100%;margin-top:6px;">Create a new household</button>
+    <p class="helpText" style="margin-top:16px;margin-bottom:6px;">— or, if someone already gave you an invite code —</p>
+    <div class="field row">
+      <input type="text" id="joinCodeInput" placeholder="Invite code" style="text-transform:uppercase;">
+      <button class="miniBtn" id="joinHouseholdBtn">Join</button>
+    </div>
+    <button class="miniBtn danger" id="gateSignOutBtn" style="margin-top:16px;">Sign out</button>
+  `);
+  const createBtn=document.getElementById("createHouseholdBtn");
+  if(createBtn) createBtn.onclick = createHousehold;
+  const joinBtn=document.getElementById("joinHouseholdBtn");
+  const joinInput=document.getElementById("joinCodeInput");
+  if(joinBtn) joinBtn.onclick = ()=>{
+    const code=(joinInput.value||"").trim().toUpperCase();
+    if(code) joinHousehold(code); else setAuthError("Enter the invite code first.");
+  };
+  if(joinInput) joinInput.addEventListener("keydown",(e)=>{
+    if(e.key==="Enter"){ e.preventDefault(); joinBtn.click(); }
+  });
+  const soBtn=document.getElementById("gateSignOutBtn");
+  if(soBtn) soBtn.onclick = ()=> fb().signOut(fb().auth);
+}
+
+function makeHouseholdCode(){
+  const chars="ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // skips 0/O/1/I to avoid mix-ups when read aloud
+  let out=""; for(let i=0;i<6;i++) out+=chars[Math.floor(Math.random()*chars.length)];
+  return out;
+}
+
+async function createHousehold(){
+  renderLoadingScreen("Creating your household…");
+  const { db, doc, getDoc, setDoc, serverTimestamp } = fb();
+  try{
+    let code=makeHouseholdCode(), attempts=0;
+    while(attempts<5){
+      const snap=await getDoc(doc(db,"households",code,"meta","info"));
+      if(!snap.exists()) break;
+      code=makeHouseholdCode(); attempts++;
+    }
+    await setDoc(doc(db,"households",code,"meta","info"), {
+      members:[currentUser.uid], createdAt:serverTimestamp(), createdBy:currentUser.uid
+    });
+    await setDoc(doc(db,"households",code,"data","state"), state);
+    await setDoc(doc(db,"users",currentUser.uid), { householdCode:code, email:currentUser.email||null }, { merge:true });
+    householdCode=code;
+    attachHouseholdListener();
+  }catch(e){
+    renderHouseholdChoiceScreen();
+    setAuthError("Couldn't create a household: " + (e&&e.message?e.message:e));
+  }
+}
+
+async function joinHousehold(code){
+  renderLoadingScreen("Joining household " + code + "…");
+  const { db, doc, getDoc, updateDoc, arrayUnion, setDoc } = fb();
+  try{
+    const metaRef=doc(db,"households",code,"meta","info");
+    const snap=await getDoc(metaRef);
+    if(!snap.exists()){
+      renderHouseholdChoiceScreen();
+      setAuthError("No household found with code " + code + " — double-check it with whoever set it up.");
+      return;
+    }
+    await updateDoc(metaRef, { members: arrayUnion(currentUser.uid) });
+    await setDoc(doc(db,"users",currentUser.uid), { householdCode:code, email:currentUser.email||null }, { merge:true });
+    householdCode=code;
+    attachHouseholdListener();
+  }catch(e){
+    renderHouseholdChoiceScreen();
+    setAuthError("Couldn't join that household: " + (e&&e.message?e.message:e));
+  }
+}
+
+function attachHouseholdListener(){
+  renderLoadingScreen("Loading your family's calendar…");
+  const { db, doc, onSnapshot } = fb();
+  if(householdUnsub){ householdUnsub(); householdUnsub=null; }
+  householdUnsub = onSnapshot(doc(db,"households",householdCode,"data","state"), (snap)=>{
+    if(snap.exists()){
+      applyingRemoteUpdate=true;
+      const remote=snap.data();
+      const merged=Object.assign(defaultState(), remote);
+      merged.settings=Object.assign(defaultState().settings, remote.settings||{});
+      // Photos are deliberately device-local (never written to Firestore),
+      // so keep whatever this device already has instead of wiping them out.
+      merged.photos = state.photos;
+      state=merged;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      if(appBooted) renderTab(); else startApp();
+      applyingRemoteUpdate=false;
+    } else if(!appBooted){
+      // Household doc exists but has no state yet (shouldn't normally
+      // happen since createHousehold seeds it) — boot with local state.
+      startApp();
+    }
+  }, (err)=>{
+    console.warn("Household sync error:", err);
+    if(!appBooted) startApp(); // don't strand the user on a spinner forever
+  });
+}
+
+function startApp(){
+  appBooted=true;
+  hideAuthGate();
+  boot();
 
 // Register the service worker so the app shell installs to the home screen
 // and still opens (though live calendar/weather sync needs wifi/data).
@@ -1623,6 +1867,49 @@ if("serviceWorker" in navigator){
     navigator.serviceWorker.register("service-worker.js").catch(()=>{});
   });
 }
+}
+
+// The Firebase module script (above) dispatches this once it has either
+// set up window.__firebase or given up and set window.__firebaseInitError.
+// This classic script runs synchronously during parsing, before that
+// module script has had a chance to run, so we can't check its result yet
+// — we just wait for the event instead of calling boot() directly.
+(function(){
+  window.addEventListener("firebaseReady", ()=>{
+    if(!window.__firebase){
+      // Firebase couldn't initialize (offline, blocked script, bad config).
+      // Fall back to the old local-only behavior rather than locking
+      // Travis's family out of their calendar.
+      console.warn("Firebase unavailable — continuing in local-only mode.");
+      startApp();
+      return;
+    }
+    const { auth, onAuthStateChanged, getDoc, doc, db } = fb();
+    onAuthStateChanged(auth, async (user)=>{
+      if(!user){
+        currentUser=null; householdCode=null;
+        if(householdUnsub){ householdUnsub(); householdUnsub=null; }
+        appBooted=false;
+        renderSignInScreen();
+        return;
+      }
+      currentUser=user;
+      renderLoadingScreen("Just a moment…");
+      try{
+        const userSnap=await getDoc(doc(db,"users",user.uid));
+        if(userSnap.exists() && userSnap.data().householdCode){
+          householdCode=userSnap.data().householdCode;
+          attachHouseholdListener();
+        }else{
+          renderHouseholdChoiceScreen();
+        }
+      }catch(e){
+        setAuthError("Couldn't check your account: " + (e&&e.message?e.message:e));
+        renderHouseholdChoiceScreen();
+      }
+    });
+  });
+})();
 </script>
 </body>
 </html>
