@@ -1,0 +1,1628 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>My Family</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0d3b3e">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="My Family">
+<style>
+  :root{
+    --bg:#e9f6ef; --card:#ffffff; --ink:#1f2d2c; --muted:#6c8985; --line:#dcece3;
+    --accent:#12726e; --accent-dark:#0d3b3e; --good:#3fae6a; --warn:#e2a33d;
+    --header:#0d3b3e; --headerInk:#ffffff;
+    --serif:Georgia,'Times New Roman',serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;height:100%;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+    -webkit-user-select:none;user-select:none;overflow:hidden;}
+  #app{display:flex;flex-direction:column;height:100vh;width:100vw;}
+  @supports (height: 100dvh){ #app{height:100dvh;} }
+  button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit;}
+  input,select,textarea{font-family:inherit;font-size:16px;}
+  h1,h2,h3{font-family:var(--serif);}
+
+  /* ---------- HEADER ---------- */
+  header{display:flex;align-items:center;justify-content:space-between;
+    padding:16px 24px;background:var(--header);color:var(--headerInk);flex-shrink:0;}
+  #clockBlock{min-width:220px;max-width:360px;}
+  #appName{font-size:15px;font-weight:700;color:#ffd9a8;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  #clockTime{font-size:34px;font-weight:700;line-height:1;font-family:var(--serif);}
+  #clockDate{font-size:15px;color:#bcd8d4;margin-top:4px;}
+  #weatherBlock{display:flex;align-items:center;gap:14px;font-size:15px;}
+  #weatherBlock .wIcon{font-size:34px;}
+  #weatherBlock .wNow{display:flex;flex-direction:column;line-height:1.15;}
+  #weatherBlock .wTemp{font-size:26px;font-weight:700;font-family:var(--serif);}
+  #weatherBlock .wDesc{font-size:12px;color:#bcd8d4;}
+  #weatherBlock .wDays{display:flex;gap:10px;color:#bcd8d4;padding-left:12px;border-left:1px solid rgba(255,255,255,.25);}
+  #countdownChip{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.25);color:#fff;padding:8px 16px;
+    border-radius:14px;font-size:14px;font-weight:600;max-width:260px;text-align:right;}
+
+  /* ---------- NAV ---------- */
+  nav{display:flex;background:var(--card);border-bottom:1px solid var(--line);flex-shrink:0;}
+  nav button{flex:1;padding:14px 0;font-size:16px;font-weight:600;color:var(--muted);
+    border-bottom:3px solid transparent;display:flex;flex-direction:column;align-items:center;gap:2px;}
+  nav button.active{color:var(--accent);border-bottom-color:var(--accent);}
+  nav .navIcon{font-size:18px;line-height:1;}
+  nav .navLabel{font-size:12px;line-height:1;}
+  .iconBadge{width:38px;height:38px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;
+    font-size:18px;flex-shrink:0;}
+  .newTag{background:var(--accent);color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;
+    text-transform:uppercase;letter-spacing:.5px;}
+
+  main{flex:1;overflow:auto;padding:16px 22px 22px;}
+
+  /* ---------- CALENDAR TOOLBAR ---------- */
+  .cal-toolbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:10px;}
+  .cal-toolbar .navBtns{display:flex;align-items:center;gap:10px;}
+  .cal-toolbar .navBtns button{font-size:20px;background:var(--card);border:1px solid var(--line);
+    border-radius:10px;padding:6px 14px;}
+  .cal-toolbar h2{margin:0 10px;font-size:20px;min-width:190px;text-align:center;}
+  .viewSwitch{display:flex;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden;}
+  .viewSwitch button{padding:8px 16px;font-size:14px;font-weight:600;color:var(--muted);}
+  .viewSwitch button.active{background:var(--accent);color:#fff;}
+  .profileChips{display:flex;gap:8px;flex-wrap:wrap;}
+  .chip{padding:6px 14px;border-radius:20px;font-size:13px;font-weight:600;border:2px solid transparent;opacity:.45;}
+  .chip.on{opacity:1;}
+  .addBtn{background:var(--accent);color:#fff;padding:10px 18px;border-radius:10px;font-weight:700;font-size:15px;}
+
+  /* ---------- MONTH GRID ---------- */
+  .monthGrid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;}
+  .dowRow{font-size:12px;color:var(--muted);text-align:center;padding-bottom:4px;font-weight:700;}
+  .dayCell{background:var(--card);border:1px solid var(--line);border-radius:10px;min-height:100px;
+    padding:6px;display:flex;flex-direction:column;gap:3px;position:relative;}
+  .dayCell.other{opacity:.35;}
+  .dayCell.today{border:2px solid var(--accent);}
+  .dayNum{font-size:13px;font-weight:700;display:flex;justify-content:space-between;align-items:center;}
+  .dayWeather{font-size:11px;color:var(--muted);}
+  .evChip{font-size:11px;padding:2px 6px;border-radius:6px;color:#fff;overflow:hidden;text-overflow:ellipsis;
+    white-space:nowrap;}
+  .moreChip{font-size:11px;color:var(--muted);font-weight:600;}
+
+  /* ---------- WEEK / DAY AGENDA ---------- */
+  .weekCols{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;align-items:start;}
+  .weekCol{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px;min-height:200px;}
+  .weekCol h4{margin:0 0 6px;font-size:13px;text-align:center;color:var(--muted);}
+  .weekCol h4 span{display:block;font-size:16px;color:var(--ink);font-weight:700;}
+  .agendaEv{font-size:12px;padding:5px 7px;border-radius:7px;color:#fff;margin-bottom:5px;}
+  .agendaEv b{display:block;font-size:11px;opacity:.9;}
+  .dayAgenda .agendaEv{font-size:14px;padding:10px 12px;margin-bottom:8px;}
+
+  /* ---------- CARDS / LISTS ---------- */
+  .col2{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:18px;
+    box-shadow:0 2px 14px rgba(13,59,62,.06);}
+  .card h3{margin:0 0 12px;font-size:18px;display:flex;justify-content:space-between;align-items:center;gap:10px;}
+  .card h3 .titleGroup{display:flex;align-items:center;gap:10px;}
+  .starTally{font-size:13px;color:var(--warn);font-weight:700;}
+  .choreRow,.itemRow{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);}
+  .choreRow:last-child,.itemRow:last-child{border-bottom:none;}
+  .checkBox{width:26px;height:26px;border-radius:8px;border:2px solid var(--line);flex-shrink:0;
+    display:flex;align-items:center;justify-content:center;font-size:15px;}
+  .checkBox.done{background:var(--good);border-color:var(--good);color:#fff;}
+  .rowText{flex:1;font-size:15px;}
+  .rowText.done{text-decoration:line-through;color:var(--muted);}
+  /* Inline-editable text: looks like a plain label until tapped, so editing
+     a list name or item never requires deleting and re-adding it. */
+  input.editableText{border:1px solid transparent;background:transparent;color:inherit;
+    padding:4px 6px;border-radius:6px;width:100%;font-family:inherit;}
+  input.editableText:hover{background:#f3f9f5;}
+  input.editableText:focus{outline:none;border-color:var(--accent);background:#fff;}
+  input.editableTitle{flex:1;font-size:18px;font-weight:700;font-family:var(--serif);min-width:0;}
+  .smallBtn{font-size:13px;color:var(--muted);padding:4px 8px;}
+  .addLine{display:flex;gap:8px;margin-top:10px;}
+  .addLine input{flex:1;padding:8px 10px;border:1px solid var(--line);border-radius:8px;}
+  .addLine button{background:var(--accent);color:#fff;padding:8px 14px;border-radius:8px;font-weight:700;}
+
+  /* ---------- MEALS ---------- */
+  .mealGrid{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;}
+  .mealCol{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px;}
+  .mealCol h4{margin:0 0 8px;font-size:13px;text-align:center;color:var(--muted);}
+  .mealSlot{font-size:11px;color:var(--muted);margin-top:6px;}
+  .mealSlot textarea{width:100%;border:1px solid var(--line);border-radius:6px;padding:4px 6px;
+    font-size:12px;resize:none;height:40px;margin-top:2px;}
+
+  /* ---------- SETTINGS ---------- */
+  .settRow{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);}
+  .settRow:last-child{border-bottom:none;}
+  .colorDot{width:20px;height:20px;border-radius:50%;flex-shrink:0;}
+  .settRow input[type=text],.settRow input[type=url]{flex:1;padding:8px 10px;border:1px solid var(--line);border-radius:8px;}
+  .miniBtn{background:#f2ede4;padding:6px 12px;border-radius:8px;font-size:13px;font-weight:600;}
+  .miniBtn.danger{background:#fde3e0;color:#c0392b;}
+  .helpText{font-size:12px;color:var(--muted);line-height:1.5;margin-top:6px;}
+
+  /* ---------- MODAL ---------- */
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;
+    z-index:50;}
+  .modal{background:#fff;border-radius:16px;padding:22px;width:92%;max-width:460px;max-height:88vh;overflow:auto;}
+  .modal h3{margin-top:0;}
+  .field{margin-bottom:12px;}
+  .field label{display:block;font-size:13px;color:var(--muted);margin-bottom:4px;font-weight:600;}
+  .field input,.field select,.field textarea{width:100%;padding:9px 10px;border:1px solid var(--line);
+    border-radius:8px;}
+  .field .row{display:flex;gap:10px;}
+  .modalBtns{display:flex;justify-content:flex-end;gap:10px;margin-top:16px;}
+  .modalBtns button{padding:10px 18px;border-radius:9px;font-weight:700;font-size:14px;}
+  .btnCancel{background:#f2ede4;}
+  .btnSave{background:var(--accent);color:#fff;}
+  .btnDelete{background:#fde3e0;color:#c0392b;margin-right:auto;}
+  .swatches{display:flex;gap:8px;flex-wrap:wrap;}
+  .swatch{width:28px;height:28px;border-radius:50%;border:3px solid transparent;}
+  .swatch.sel{border-color:#000;}
+  .hidden{display:none!important;}
+
+  /* ---------- CHORE COUNTERS / WEEKLY STRIP ---------- */
+  .todayCounter{font-size:13px;color:var(--accent);font-weight:700;background:#e3f2ef;padding:3px 12px;border-radius:20px;white-space:nowrap;}
+  .dayStrip{display:flex;gap:6px;margin:12px 0 6px;}
+  .dayStripItem{flex:1;text-align:center;background:#f3f9f5;border-radius:10px;padding:6px 2px;font-size:10px;color:var(--muted);font-weight:600;}
+  .dayStripItem.today{background:var(--accent);color:#fff;}
+  .dayStripItem .dsCount{display:block;font-weight:700;font-size:13px;margin-top:2px;}
+
+  /* ---------- ROUTINES ---------- */
+  .routinesSection{margin-top:14px;padding-top:14px;border-top:1px dashed var(--line);}
+  .routinesSection h4{margin:0 0 8px;font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;}
+  .routineCard{margin-bottom:10px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:#fbfdfc;}
+  .routineCard .routineHead{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;}
+  .routineCard .routineHead b{font-size:14px;}
+  .routineProgress{font-size:11px;color:var(--muted);font-weight:600;}
+  .routineStep{display:flex;align-items:center;gap:8px;padding:3px 0;font-size:13px;}
+  .routineStep .checkBox{width:20px;height:20px;font-size:11px;}
+  .routineDone{color:var(--good);font-weight:700;font-size:12px;margin-top:4px;}
+
+  /* ---------- REWARDS ---------- */
+  .rewardsSection{margin-top:14px;padding-top:14px;border-top:1px dashed var(--line);}
+  .rewardsSection h4{margin:0 0 8px;font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;
+    display:flex;justify-content:space-between;align-items:center;}
+  .balancePill{background:#fff4de;color:#b9790a;padding:3px 12px;border-radius:20px;font-weight:700;font-size:13px;}
+  .rewardRow{display:flex;align-items:center;gap:10px;padding:6px 0;}
+  .rewardRow .rewardName{flex:1;font-size:14px;}
+  .rewardCost{font-size:12px;color:var(--warn);font-weight:700;white-space:nowrap;}
+  .redeemBtn{background:var(--accent);color:#fff;padding:6px 12px;border-radius:8px;font-size:12px;font-weight:700;}
+  .redeemBtn:disabled{opacity:.35;cursor:not-allowed;}
+  .redeemLog{font-size:11px;color:var(--muted);margin-top:6px;}
+
+  /* ---------- PHOTO SCREENSAVER ---------- */
+  .photoThumbs{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0;}
+  .photoThumb{position:relative;width:70px;height:70px;border-radius:10px;overflow:hidden;flex-shrink:0;}
+  .photoThumb img{width:100%;height:100%;object-fit:cover;display:block;}
+  .photoThumb button{position:absolute;top:2px;right:2px;background:rgba(0,0,0,.55);color:#fff;border-radius:50%;
+    width:20px;height:20px;font-size:12px;line-height:1;}
+  .screensaverOverlay{position:fixed;inset:0;background:#000;z-index:200;overflow:hidden;}
+  .screensaverOverlay .ssImg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}
+  .screensaverInfo{position:absolute;left:0;right:0;bottom:0;color:#fff;text-align:center;padding:34px 20px;
+    background:linear-gradient(transparent,rgba(0,0,0,.7));}
+  .screensaverInfo .ssTime{font-size:52px;font-weight:700;font-family:var(--serif);}
+  .screensaverInfo .ssDate{font-size:16px;opacity:.85;margin-top:4px;}
+  .screensaverInfo .ssWeather{font-size:15px;opacity:.9;margin-top:8px;}
+  .screensaverInfo .ssHint{font-size:12px;opacity:.6;margin-top:14px;}
+
+  /* ---------- MOBILE / NARROW SCREENS ---------- */
+  @media (max-width: 700px){
+    html,body{overflow-y:auto;-webkit-user-select:auto;user-select:auto;}
+    #app{height:auto;min-height:100vh;}
+    header{flex-wrap:wrap;padding:10px 12px;gap:8px;}
+    #clockBlock{min-width:0;max-width:none;flex:1 1 100%;order:1;}
+    #appName{font-size:13px;white-space:normal;}
+    #clockTime{font-size:26px;}
+    #clockDate{font-size:13px;}
+    #weatherBlock{order:2;font-size:12px;gap:8px;flex-wrap:wrap;}
+    #weatherBlock .wIcon{font-size:22px;}
+    #weatherBlock .wTemp{font-size:17px;}
+    #weatherBlock .wDesc{font-size:10px;}
+    #weatherBlock .wDays{gap:6px;font-size:10px;padding-left:8px;}
+    .screensaverInfo .ssTime{font-size:34px;}
+    .screensaverInfo .ssDate{font-size:13px;}
+    .screensaverInfo .ssWeather{font-size:12px;}
+    #countdownChip{order:3;flex:1 1 100%;max-width:none;text-align:left;font-size:12px;padding:6px 12px;}
+
+    nav button{padding:9px 0;}
+    nav .navIcon{font-size:17px;}
+    nav .navLabel{font-size:10px;}
+
+    main{padding:10px 12px 16px;}
+    .cal-toolbar{gap:8px;}
+    .cal-toolbar .navBtns{gap:6px;}
+    .cal-toolbar h2{font-size:15px;min-width:0;margin:0 4px;}
+    .cal-toolbar .navBtns button{font-size:16px;padding:5px 10px;}
+    .viewSwitch button{padding:6px 10px;font-size:12px;}
+    .addBtn{padding:8px 12px;font-size:13px;}
+    .profileChips{gap:5px;}
+    .chip{padding:5px 10px;font-size:11px;}
+
+    /* Month grid: shrink cells rather than force 7 tiny unreadable columns */
+    .monthGrid{gap:3px;}
+    .dowRow{font-size:9px;}
+    .dayCell{min-height:56px;padding:3px;border-radius:6px;gap:1px;}
+    .dayNum{font-size:10px;}
+    .dayWeather{font-size:9px;}
+    .evChip{font-size:8px;padding:1px 3px;border-radius:4px;}
+    .moreChip{font-size:8px;}
+
+    /* Week view and meal planner: let the 7 days scroll horizontally
+       instead of squeezing into unreadable slivers. */
+    .weekCols{display:flex;overflow-x:auto;-webkit-overflow-scrolling:touch;gap:8px;padding-bottom:6px;}
+    .weekCol{flex:0 0 42vw;min-width:150px;}
+    .mealGrid{display:flex;overflow-x:auto;-webkit-overflow-scrolling:touch;gap:8px;padding-bottom:6px;}
+    .mealCol{flex:0 0 60vw;min-width:190px;}
+
+    .col2{grid-template-columns:1fr;}
+    .card{padding:12px;}
+
+    .modal{padding:16px;width:94%;}
+    .field .row{flex-direction:column;gap:4px;}
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <header>
+    <div id="clockBlock">
+      <div id="appName">Hi there! 👋</div>
+      <div id="clockTime">--:--</div>
+      <div id="clockDate">Loading...</div>
+    </div>
+    <div id="weatherBlock"></div>
+    <div id="countdownChip">No countdown set</div>
+  </header>
+
+  <nav id="mainNav">
+    <button data-tab="home" class="active"><span class="navIcon">🏠</span><span class="navLabel">Home</span></button>
+    <button data-tab="calendar"><span class="navIcon">📅</span><span class="navLabel">Calendar</span></button>
+    <button data-tab="chores"><span class="navIcon">✅</span><span class="navLabel">Chores</span></button>
+    <button data-tab="lists"><span class="navIcon">🛒</span><span class="navLabel">Lists</span></button>
+    <button data-tab="meals"><span class="navIcon">🍽</span><span class="navLabel">Meals</span></button>
+    <button data-tab="settings"><span class="navIcon">⚙️</span><span class="navLabel">Settings</span></button>
+  </nav>
+
+  <main id="main"></main>
+</div>
+
+<script>
+/* =========================================================================
+   FAMILY KITCHEN CALENDAR — single-file app
+   - Runs entirely client-side. All family data (profiles, chores, lists,
+     meals, manual events, settings) is stored in this browser's
+     localStorage, so it lives on whichever tablet/device has this page
+     open. There is no paid server behind this.
+   - Calendar sync (Google / Outlook) works by fetching your calendar's
+     public ICS feed URL through a free public CORS-proxy, since browsers
+     block direct cross-origin fetches to calendar.google.com/outlook.
+     Free proxies can be rate-limited or go offline — if sync stops
+     working, swap the proxy template in Settings, or ask Claude to help
+     wire up a small free Cloudflare Worker as a more reliable proxy.
+   ========================================================================= */
+
+const STORAGE_KEY = "kitchenCalendarState_v1";
+const DEFAULT_COLORS = ["#ff7a59","#4f9dde","#5cb85c","#f0ad4e","#9b59b6","#e75480","#2ecc71","#3498db"];
+
+function defaultState(){
+  return {
+    profiles:[
+      {id:"p1", name:"Alissa", color:"#ff7a59"},
+      {id:"p2", name:"Travis", color:"#4f9dde"},
+      {id:"p3", name:"Zayn", color:"#5cb85c"}
+    ],
+    feeds:[], // {id, label, url, profileId, proxy}
+    events:[], // {id, title, start (ISO), end(ISO), allDay, profileId, location, notes, feedId?, repeat}
+    chores:[], // {id, name, profileId, frequency: 'daily'|'weekly', days:[0-6] for weekly}
+    choreLog:{}, // "choreId_YYYY-MM-DD": true
+    routines:[], // {id, name, profileId, steps:[{id, text}]}
+    routineLog:{}, // "routineId_stepId_YYYY-MM-DD": true, plus "routineId_bonus_YYYY-MM-DD": true once the daily completion star has been awarded
+    starBalance:{}, // profileId -> lifetime redeemable star count
+    rewards:[ // shared catalog, redeemable by any profile
+      {id:"r1", name:"30 min extra screen time", cost:5},
+      {id:"r2", name:"Pick a movie for family night", cost:10},
+      {id:"r3", name:"Ice cream treat", cost:8}
+    ],
+    redemptions:[], // {id, profileId, rewardName, cost, date}
+    lists:[
+      {id:"l1", name:"Grocery", color:"#5cb85c", items:[]}
+    ],
+    meals:{}, // "YYYY-MM-DD": {breakfast,lunch,dinner}
+    photos:[], // {id, data (base64 dataURL)}
+    settings:{
+      cityName:"", lat:null, lon:null, tz:"auto",
+      proxyTemplate:"https://api.allorigins.win/raw?url={url}",
+      syncMinutes:20,
+      countdownTitle:"", countdownDate:"",
+      screensaverEnabled:false, screensaverIdleMinutes:5
+    }
+  };
+}
+
+let state = loadState();
+function loadState(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(raw){
+      const saved = JSON.parse(raw);
+      const merged = Object.assign(defaultState(), saved);
+      // Settings is nested, so a plain Object.assign would drop any new
+      // default keys (like screensaverEnabled) that an older save doesn't
+      // have yet. Backfill those explicitly instead.
+      merged.settings = Object.assign(defaultState().settings, saved.settings||{});
+      return merged;
+    }
+  }catch(e){ console.warn("Could not load saved data, starting fresh.", e); }
+  return defaultState();
+}
+function saveState(){
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+/* ---------------------------- date helpers ---------------------------- */
+function pad(n){ return n<10 ? "0"+n : ""+n; }
+function isoDate(d){ return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate()); }
+function startOfWeek(d){ const x=new Date(d); const day=x.getDay(); x.setDate(x.getDate()-day); x.setHours(0,0,0,0); return x; }
+function addDays(d,n){ const x=new Date(d); x.setDate(x.getDate()+n); return x; }
+function sameDay(a,b){ return a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate(); }
+const MONTHS=["January","February","March","April","May","June","July","August","September","October","November","December"];
+const DOW=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+
+/* =========================================================================
+   ICS PARSING
+   Minimal RFC5545 parser: unfolds lines, reads VEVENT blocks, expands
+   simple RRULEs (FREQ=DAILY/WEEKLY/MONTHLY/YEARLY, INTERVAL, COUNT, UNTIL,
+   BYDAY) for a window around "today". Complex recurrence edge cases
+   (EXDATE overrides, RDATE, multi-part BYDAY like "2MO") are not fully
+   handled — verify important recurring events display correctly and
+   report anything wrong so it can be patched.
+   ========================================================================= */
+function unfoldICS(text){
+  const lines = text.replace(/\r\n/g,"\n").split("\n");
+  const out=[];
+  for(const line of lines){
+    if((line.startsWith(" ")||line.startsWith("\t")) && out.length){
+      out[out.length-1]+= line.slice(1);
+    } else out.push(line);
+  }
+  return out;
+}
+function parseICSDate(val, params){
+  // val like 20260401 or 20260401T130000 or 20260401T130000Z
+  const isDateOnly = /^\d{8}$/.test(val);
+  const y=+val.slice(0,4), mo=+val.slice(4,6)-1, da=+val.slice(6,8);
+  if(isDateOnly) return {date:new Date(y,mo,da), allDay:true};
+  const h=+val.slice(9,11)||0, mi=+val.slice(11,13)||0, se=+val.slice(13,15)||0;
+  if(val.endsWith("Z")){
+    return {date:new Date(Date.UTC(y,mo,da,h,mi,se)), allDay:false};
+  }
+  // Treat TZID / floating times as local time (good enough for a household display).
+  return {date:new Date(y,mo,da,h,mi,se), allDay:false};
+}
+function parseICS(text, feedId, profileId){
+  const lines = unfoldICS(text);
+  const events=[];
+  let cur=null;
+  for(const raw of lines){
+    const line=raw.trim();
+    if(line==="BEGIN:VEVENT"){ cur={}; continue; }
+    if(line==="END:VEVENT"){ if(cur) events.push(cur); cur=null; continue; }
+    if(!cur) continue;
+    const idx=line.indexOf(":");
+    if(idx<0) continue;
+    let key=line.slice(0,idx), val=line.slice(idx+1);
+    const params={};
+    if(key.includes(";")){
+      const parts=key.split(";"); key=parts[0];
+      for(let i=1;i<parts.length;i++){ const [pk,pv]=parts[i].split("="); params[pk]=pv; }
+    }
+    if(key==="DTSTART") cur.start=parseICSDate(val, params);
+    else if(key==="DTEND") cur.end=parseICSDate(val, params);
+    else if(key==="SUMMARY") cur.title=val.replace(/\\,/g,",").replace(/\\n/gi," ");
+    else if(key==="LOCATION") cur.location=val.replace(/\\,/g,",");
+    else if(key==="DESCRIPTION") cur.notes=val.replace(/\\,/g,",").replace(/\\n/gi," ");
+    else if(key==="UID") cur.uid=val;
+    else if(key==="RRULE") cur.rrule=val;
+  }
+
+  const windowStart = addDays(new Date(),-45);
+  const windowEnd = addDays(new Date(),240);
+  const out=[];
+
+  for(const ev of events){
+    if(!ev.start) continue;
+    const durationMs = (ev.end? ev.end.date.getTime() : ev.start.date.getTime()) - ev.start.date.getTime();
+    const base = {
+      title: ev.title || "(untitled event)",
+      location: ev.location || "",
+      notes: ev.notes || "",
+      allDay: !!ev.start.allDay,
+      feedId, profileId
+    };
+    if(!ev.rrule){
+      out.push(Object.assign({}, base, {
+        id: (ev.uid||Math.random().toString(36))+"_0",
+        start: ev.start.date.toISOString(),
+        end: new Date(ev.start.date.getTime()+Math.max(durationMs,0)).toISOString()
+      }));
+      continue;
+    }
+    // expand simple RRULE
+    const rule={};
+    ev.rrule.split(";").forEach(p=>{ const [k,v]=p.split("="); rule[k]=v; });
+    const freq=rule.FREQ, interval=parseInt(rule.INTERVAL||"1",10);
+    const count = rule.COUNT ? parseInt(rule.COUNT,10) : null;
+    const until = rule.UNTIL ? parseICSDate(rule.UNTIL.replace("Z",""),{}).date : null;
+    const byday = rule.BYDAY ? rule.BYDAY.split(",") : null;
+    const dayMap={SU:0,MO:1,TU:2,WE:3,TH:4,FR:5,SA:6};
+
+    let n=0, cursor=new Date(ev.start.date), safety=0;
+    // Cap generous enough to walk a weekly BYDAY rule (which advances one
+    // day per loop) from a start date decades in the past up to the
+    // display window, without ever meaningfully slowing things down.
+    while(safety<20000){
+      safety++;
+      if(count!=null && n>=count) break;
+      if(until && cursor>until) break;
+      if(cursor>windowEnd) break;
+      let occursToday=true;
+      if(freq==="WEEKLY" && byday){
+        occursToday = byday.some(bd=>dayMap[bd.slice(-2)]===cursor.getDay());
+      }
+      if(occursToday){
+        // n (the series index) must advance for every real occurrence of the
+        // rule, even ones outside our display window, so COUNT/UNTIL stay
+        // accurate to the true recurrence series.
+        if(cursor>=windowStart && cursor<=windowEnd){
+          out.push(Object.assign({}, base, {
+            id:(ev.uid||Math.random().toString(36))+"_"+n,
+            start: cursor.toISOString(),
+            end: new Date(cursor.getTime()+Math.max(durationMs,0)).toISOString()
+          }));
+        }
+        n++;
+      }
+      // advance cursor
+      if(freq==="DAILY") cursor=addDays(cursor, interval);
+      else if(freq==="WEEKLY"){
+        if(byday){ cursor=addDays(cursor,1); }
+        else cursor=addDays(cursor,7*interval);
+      }
+      else if(freq==="MONTHLY"){ const d=new Date(cursor); d.setMonth(d.getMonth()+interval); cursor=d; }
+      else if(freq==="YEARLY"){ const d=new Date(cursor); d.setFullYear(d.getFullYear()+interval); cursor=d; }
+      else break; // unsupported freq, stop expanding
+      if(freq==="WEEKLY" && byday && cursor.getDay()===0 && n>0){
+        // after finishing a week block, jump by (interval-1) extra weeks
+        cursor = addDays(cursor, 7*(interval-1));
+      }
+    }
+  }
+  return out;
+}
+
+async function syncFeed(feed){
+  const proxied = state.settings.proxyTemplate.replace("{url}", encodeURIComponent(feed.url));
+  const res = await fetch(proxied);
+  if(!res.ok) throw new Error("HTTP "+res.status);
+  const text = await res.text();
+  return parseICS(text, feed.id, feed.profileId);
+}
+async function syncAllFeeds(showAlert){
+  let anyError=null;
+  for(const feed of state.feeds){
+    try{
+      const parsed = await syncFeed(feed);
+      state.events = state.events.filter(e=>e.feedId!==feed.id).concat(parsed);
+      feed.lastSync = new Date().toISOString();
+      feed.lastError = null;
+    }catch(e){
+      feed.lastError = e.message;
+      anyError = e;
+    }
+  }
+  saveState();
+  if(currentTab==="calendar") renderTab();
+  if(currentTab==="settings") renderTab();
+  if(showAlert && anyError) alert("Some calendars failed to sync: "+anyError.message+"\nCheck the feed link / proxy in Settings.");
+}
+
+/* ============================ WEATHER ============================ */
+function reverseGeocode(lat, lon){
+  const url=`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=en`;
+  return fetch(url).then(r=>r.json()).then(d=>{
+    const place = d.city || d.locality || "Current location";
+    return d.principalSubdivision ? `${place}, ${d.principalSubdivision}` : place;
+  }).catch(()=> "Current location");
+}
+async function geocodeCity(name){
+  const url="https://geocoding-api.open-meteo.com/v1/search?name="+encodeURIComponent(name)+"&count=1";
+  const res= await fetch(url);
+  const data= await res.json();
+  if(data.results && data.results.length){
+    const r=data.results[0];
+    return {lat:r.latitude, lon:r.longitude, label:r.name+(r.admin1?", "+r.admin1:"")};
+  }
+  throw new Error("City not found");
+}
+function weatherEmoji(code){
+  if(code===0) return "☀️";
+  if([1,2].includes(code)) return "🌤";
+  if(code===3) return "☁️";
+  if([45,48].includes(code)) return "🌫";
+  if([51,53,55,56,57].includes(code)) return "🌦";
+  if([61,63,65,80,81,82].includes(code)) return "🌧";
+  if([71,73,75,77,85,86].includes(code)) return "❄️";
+  if([95,96,99].includes(code)) return "⛈";
+  return "🌡";
+}
+// WMO weather codes used by Open-Meteo — https://open-meteo.com/en/docs
+function weatherText(code){
+  const map={
+    0:"Clear sky", 1:"Mainly clear", 2:"Partly cloudy", 3:"Overcast",
+    45:"Foggy", 48:"Foggy",
+    51:"Light drizzle", 53:"Drizzle", 55:"Heavy drizzle",
+    56:"Freezing drizzle", 57:"Freezing drizzle",
+    61:"Light rain", 63:"Rain", 65:"Heavy rain",
+    66:"Freezing rain", 67:"Freezing rain",
+    71:"Light snow", 73:"Snow", 75:"Heavy snow", 77:"Snow grains",
+    80:"Rain showers", 81:"Rain showers", 82:"Heavy showers",
+    85:"Snow showers", 86:"Snow showers",
+    95:"Thunderstorm", 96:"Thunderstorm w/ hail", 99:"Thunderstorm w/ hail"
+  };
+  return map[code] || "—";
+}
+let weatherCache=null;
+async function refreshWeather(){
+  const s=state.settings;
+  if(s.lat==null || s.lon==null){
+    document.getElementById("weatherBlock").innerHTML = "<span style='color:var(--muted);font-size:13px'>Add your location in Settings for weather</span>";
+    return;
+  }
+  try{
+    const url=`https://api.open-meteo.com/v1/forecast?latitude=${s.lat}&longitude=${s.lon}&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min,weather_code&temperature_unit=fahrenheit&timezone=${encodeURIComponent(s.tz||"auto")}&forecast_days=5`;
+    const res= await fetch(url);
+    const data= await res.json();
+    weatherCache=data;
+    renderWeatherBlock(data);
+  }catch(e){
+    document.getElementById("weatherBlock").innerHTML = "<span style='color:var(--muted);font-size:13px'>Weather unavailable</span>";
+  }
+}
+function renderWeatherBlock(data){
+  const cur=data.current, daily=data.daily;
+  let html = `<span class="wIcon">${weatherEmoji(cur.weather_code)}</span>
+    <div class="wNow">
+      <span class="wTemp">${Math.round(cur.temperature_2m)}°</span>
+      <span class="wDesc">${weatherText(cur.weather_code)}${daily.temperature_2m_max[0]!=null?` · H:${Math.round(daily.temperature_2m_max[0])}° L:${Math.round(daily.temperature_2m_min[0])}°`:''}</span>
+    </div>
+    <div class="wDays">`;
+  for(let i=1;i<Math.min(4,daily.time.length);i++){
+    const d=new Date(daily.time[i]+"T00:00:00");
+    html+=`<span>${DOW[d.getDay()]} ${weatherEmoji(daily.weather_code[i])} ${Math.round(daily.temperature_2m_max[i])}°</span>`;
+  }
+  html+="</div>";
+  document.getElementById("weatherBlock").innerHTML=html;
+}
+function dayForecast(dateObj){
+  if(!weatherCache) return "";
+  const iso=isoDate(dateObj);
+  const idx = weatherCache.daily.time.indexOf(iso);
+  if(idx<0) return "";
+  return `${weatherEmoji(weatherCache.daily.weather_code[idx])} ${Math.round(weatherCache.daily.temperature_2m_max[idx])}°/${Math.round(weatherCache.daily.temperature_2m_min[idx])}°`;
+}
+
+/* ============================ CLOCK / COUNTDOWN ============================ */
+function timeOfDayGreeting(hour){
+  if(hour<5) return "Still up";
+  if(hour<12) return "Good morning";
+  if(hour<17) return "Good afternoon";
+  if(hour<21) return "Good evening";
+  return "Good night";
+}
+function joinNames(names){
+  if(names.length===0) return "";
+  if(names.length===1) return names[0];
+  if(names.length===2) return names[0]+" & "+names[1];
+  return names.slice(0,-1).join(", ")+" & "+names[names.length-1];
+}
+const GREETING_EMOJI = ["😊","🌟","☀️","💛","🙌","🌤️"];
+function renderGreeting(){
+  const now=new Date();
+  const greeting = timeOfDayGreeting(now.getHours());
+  const names = state.profiles.map(p=>p.name).filter(Boolean);
+  const emoji = GREETING_EMOJI[now.getMinutes() % GREETING_EMOJI.length];
+  const text = names.length
+    ? `${greeting}, ${joinNames(names)}! ${emoji}`
+    : `${greeting}! ${emoji}`;
+  const el=document.getElementById("appName");
+  if(el) el.textContent = text;
+}
+function tickClock(){
+  const now=new Date();
+  let h=now.getHours(); const ampm= h>=12?"PM":"AM"; h=h%12; if(h===0)h=12;
+  document.getElementById("clockTime").textContent = h+":"+pad(now.getMinutes())+" "+ampm;
+  document.getElementById("clockDate").textContent = DOW[now.getDay()]===undefined?"":
+    ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"][now.getDay()]+", "+MONTHS[now.getMonth()]+" "+now.getDate();
+  renderGreeting();
+  renderCountdown();
+}
+function renderCountdown(){
+  const el=document.getElementById("countdownChip");
+  const s=state.settings;
+  if(!s.countdownDate || !s.countdownTitle){ el.textContent="No countdown set"; el.style.opacity=.5; return; }
+  el.style.opacity=1;
+  const target=new Date(s.countdownDate+"T00:00:00");
+  const now=new Date(); now.setHours(0,0,0,0);
+  const days=Math.round((target-now)/86400000);
+  if(days>0) el.textContent = `🎉 ${days} day${days===1?"":"s"} until ${s.countdownTitle}`;
+  else if(days===0) el.textContent = `🎉 Today is ${s.countdownTitle}!`;
+  else el.textContent = `${s.countdownTitle} has passed`;
+}
+
+/* ============================ NAV / TABS ============================ */
+let currentTab="home";
+let calView="month"; // month|week|day
+let calCursor=new Date();
+let activeProfileFilter=new Set(); // empty = show all
+
+document.getElementById("mainNav").addEventListener("click", e=>{
+  const btn=e.target.closest("button[data-tab]"); if(!btn) return;
+  currentTab=btn.dataset.tab;
+  document.querySelectorAll("#mainNav button").forEach(b=>b.classList.toggle("active", b===btn));
+  renderTab();
+});
+
+function renderTab(){
+  const main=document.getElementById("main");
+  if(currentTab==="home") main.innerHTML = homeHTML();
+  else if(currentTab==="calendar") main.innerHTML = calendarHTML();
+  else if(currentTab==="chores") main.innerHTML = choresHTML();
+  else if(currentTab==="lists") main.innerHTML = listsHTML();
+  else if(currentTab==="meals") main.innerHTML = mealsHTML();
+  else if(currentTab==="settings") main.innerHTML = settingsHTML();
+  attachTabEvents();
+}
+
+function profileById(id){ return state.profiles.find(p=>p.id===id); }
+function profileColor(id){ const p=profileById(id); return p? p.color : "#999"; }
+
+function eventsForDay(d){
+  return state.events.filter(e=>{
+    const s=new Date(e.start);
+    return sameDay(s,d);
+  }).sort((a,b)=> new Date(a.start)-new Date(b.start));
+}
+
+/* ---------------------------- HOME DASHBOARD ---------------------------- */
+function homeHTML(){
+  const todayISO = isoDate(new Date());
+  const todayEvents = eventsForDay(new Date());
+  const todayMeal = state.meals[todayISO] || {breakfast:"",lunch:"",dinner:""};
+  const mealBits = [todayMeal.breakfast, todayMeal.lunch, todayMeal.dinner].filter(Boolean);
+  const groceryList = state.lists.find(l=>l.name.toLowerCase()==="grocery") || state.lists[0];
+  const groceryRemaining = groceryList ? groceryList.items.filter(i=>!i.done).length : 0;
+
+  return `
+  <div class="card" style="margin-bottom:18px">
+    <h3>Today at a Glance</h3>
+    <div class="col2" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
+      <div><div class="helpText" style="font-weight:700">📅 Events</div><div style="font-size:15px;margin-top:2px">${todayEvents.length} scheduled today</div></div>
+      <div><div class="helpText" style="font-weight:700">🍽 Meals</div><div style="font-size:15px;margin-top:2px">${mealBits.length? escapeHtml(mealBits.join(" · ")) : "Nothing planned yet"}</div></div>
+      <div><div class="helpText" style="font-weight:700">🛒 ${groceryList?escapeHtml(groceryList.name):'Grocery'}</div><div style="font-size:15px;margin-top:2px">${groceryRemaining} item${groceryRemaining===1?'':'s'} left</div></div>
+    </div>
+  </div>
+  <div class="col2">
+  ${state.profiles.map(p=>{
+    const myEvents = todayEvents.filter(e=>e.profileId===p.id);
+    const myChores = state.chores.filter(c=>c.profileId===p.id);
+    const myRoutines = state.routines.filter(r=>r.profileId===p.id);
+    const choreCount = choresDoneToday(p.id);
+    return `<div class="card">
+      <h3><span class="titleGroup"><span class="iconBadge" style="background:${p.color}22;color:${p.color}">🧒</span><span style="color:${p.color}">${escapeHtml(p.name)}</span></span><span class="balancePill">⭐ ${starBalanceOf(p.id)}</span></h3>
+
+      <div class="helpText" style="font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px">Today's Schedule</div>
+      ${myEvents.length? myEvents.map(e=>`
+        <div class="itemRow">
+          <div style="width:8px;height:8px;border-radius:50%;background:${p.color};flex-shrink:0"></div>
+          <div class="rowText">${e.allDay?'All day':fmtTime(e.start)} — ${escapeHtml(e.title)}</div>
+        </div>`).join("") : `<p style="color:var(--muted);font-size:13px">Nothing scheduled today.</p>`}
+
+      <div class="helpText" style="font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin:12px 0 4px">Chores <span style="float:right;color:var(--accent)">${choreCount.done}/${choreCount.total}</span></div>
+      ${myChores.length? myChores.map(c=>{
+        const done=!!state.choreLog[c.id+"_"+todayISO];
+        return `<div class="choreRow"><div class="checkBox ${done?'done':''}" data-chore="${c.id}">${done?'✓':''}</div><div class="rowText ${done?'done':''}">${escapeHtml(c.name)}</div></div>`;
+      }).join("") : `<p style="color:var(--muted);font-size:13px">No chores set up yet.</p>`}
+
+      ${myRoutines.length? `
+      <div class="helpText" style="font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin:12px 0 4px">Routines</div>
+      ${myRoutines.map(r=>{
+        const prog=routineProgress(r, todayISO);
+        const complete = prog.total>0 && prog.done===prog.total;
+        return `<div class="itemRow"><div class="rowText">${complete?'🎉 ':''}${escapeHtml(r.name)}</div><div style="font-size:12px;color:var(--muted)">${prog.done}/${prog.total}</div></div>`;
+      }).join("")}` : ""}
+    </div>`;
+  }).join("")}
+  </div>`;
+}
+function attachHomeEvents(){
+  document.querySelectorAll("[data-chore]").forEach(el=> el.onclick=()=> toggleChoreDone(el.dataset.chore));
+}
+
+/* ---------------------------- CALENDAR TAB ---------------------------- */
+function calendarHTML(){
+  const chips = state.profiles.map(p=>{
+    const on = activeProfileFilter.size===0 || activeProfileFilter.has(p.id);
+    return `<button class="chip ${on?'on':''}" data-filter="${p.id}" style="background:${p.color};color:#fff">${p.name}</button>`;
+  }).join("");
+
+  let title="", body="";
+  if(calView==="month"){
+    title = MONTHS[calCursor.getMonth()]+" "+calCursor.getFullYear();
+    body = monthGridHTML();
+  } else if(calView==="week"){
+    const ws=startOfWeek(calCursor), we=addDays(ws,6);
+    title = MONTHS[ws.getMonth()]+" "+ws.getDate()+" – "+(we.getMonth()!==ws.getMonth()?MONTHS[we.getMonth()]+" ":"")+we.getDate();
+    body = weekHTML(ws);
+  } else {
+    title = DOW[calCursor.getDay()] ? ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"][calCursor.getDay()]+", "+MONTHS[calCursor.getMonth()]+" "+calCursor.getDate() : "";
+    body = dayHTML(calCursor);
+  }
+
+  return `
+  <div class="cal-toolbar">
+    <div class="navBtns">
+      <button id="calPrev">‹</button>
+      <h2>${title}</h2>
+      <button id="calNext">›</button>
+      <button id="calToday" class="miniBtn" style="margin-left:6px">Today</button>
+    </div>
+    <div class="viewSwitch">
+      <button data-view="month" class="${calView==='month'?'active':''}">Month</button>
+      <button data-view="week" class="${calView==='week'?'active':''}">Week</button>
+      <button data-view="day" class="${calView==='day'?'active':''}">Day</button>
+    </div>
+    <div class="profileChips">${chips}</div>
+    <button class="addBtn" id="addEventBtn">+ Add Event</button>
+  </div>
+  ${body}
+  `;
+}
+function passesFilter(e){
+  return activeProfileFilter.size===0 || activeProfileFilter.has(e.profileId);
+}
+function monthGridHTML(){
+  const first=new Date(calCursor.getFullYear(),calCursor.getMonth(),1);
+  const gridStart=startOfWeek(first);
+  let html = `<div class="monthGrid">`;
+  DOW.forEach(d=> html+=`<div class="dowRow">${d}</div>`);
+  const today=new Date();
+  for(let i=0;i<42;i++){
+    const d=addDays(gridStart,i);
+    const isOther = d.getMonth()!==calCursor.getMonth();
+    const isToday = sameDay(d,today);
+    const dayEvents = eventsForDay(d).filter(passesFilter);
+    const shown=dayEvents.slice(0,3);
+    const more = dayEvents.length-shown.length;
+    html+=`<div class="dayCell ${isOther?'other':''} ${isToday?'today':''}" data-daycell="${isoDate(d)}">
+      <div class="dayNum"><span>${d.getDate()}</span><span class="dayWeather">${dayForecast(d)}</span></div>
+      ${shown.map(e=>`<div class="evChip" style="background:${profileColor(e.profileId)}">${e.allDay?'':fmtTime(e.start)+' '}${escapeHtml(e.title)}</div>`).join("")}
+      ${more>0?`<div class="moreChip">+${more} more</div>`:""}
+    </div>`;
+  }
+  html+="</div>";
+  return html;
+}
+function weekHTML(ws){
+  let html=`<div class="weekCols">`;
+  const today=new Date();
+  for(let i=0;i<7;i++){
+    const d=addDays(ws,i);
+    const dayEvents = eventsForDay(d).filter(passesFilter);
+    html+=`<div class="weekCol" data-daycell="${isoDate(d)}">
+      <h4>${DOW[d.getDay()]}<span>${d.getDate()}</span></h4>
+      <div style="font-size:10px;color:var(--muted);text-align:center;margin-bottom:6px">${dayForecast(d)}</div>
+      ${dayEvents.map(e=>`<div class="agendaEv" style="background:${profileColor(e.profileId)}"><b>${e.allDay?'All day':fmtTime(e.start)}</b>${escapeHtml(e.title)}</div>`).join("") || `<div style="font-size:12px;color:var(--muted);text-align:center">—</div>`}
+    </div>`;
+  }
+  html+="</div>";
+  return html;
+}
+function dayHTML(d){
+  const dayEvents = eventsForDay(d).filter(passesFilter);
+  return `<div class="card dayAgenda" data-daycell="${isoDate(d)}">
+    <div style="color:var(--muted);font-size:13px;margin-bottom:10px">${dayForecast(d)}</div>
+    ${dayEvents.length? dayEvents.map(e=>`<div class="agendaEv" style="background:${profileColor(e.profileId)}"><b>${e.allDay?'All day':fmtTime(e.start)+' – '+fmtTime(e.end)}</b>${escapeHtml(e.title)}${e.location?' · '+escapeHtml(e.location):''}</div>`).join("")
+      : `<div style="color:var(--muted)">No events today.</div>`}
+  </div>`;
+}
+function fmtTime(iso){
+  const d=new Date(iso);
+  let h=d.getHours(); const ampm=h>=12?"pm":"am"; h=h%12; if(h===0)h=12;
+  return h+(d.getMinutes()? ":"+pad(d.getMinutes()):"")+ampm;
+}
+function escapeHtml(s){ return (s||"").replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+
+function attachTabEvents(){
+  if(currentTab==="calendar"){
+    document.getElementById("calPrev").onclick=()=>{ shiftCal(-1); };
+    document.getElementById("calNext").onclick=()=>{ shiftCal(1); };
+    document.getElementById("calToday").onclick=()=>{ calCursor=new Date(); renderTab(); };
+    document.querySelectorAll(".viewSwitch button").forEach(b=> b.onclick=()=>{ calView=b.dataset.view; renderTab(); });
+    document.querySelectorAll(".chip[data-filter]").forEach(b=> b.onclick=()=>{
+      const id=b.dataset.filter;
+      if(activeProfileFilter.has(id)) activeProfileFilter.delete(id); else activeProfileFilter.add(id);
+      renderTab();
+    });
+    document.getElementById("addEventBtn").onclick=()=> openEventModal(null, isoDate(calCursor));
+    document.querySelectorAll("[data-daycell]").forEach(cell=>{
+      cell.addEventListener("click",()=> openDayModal(cell.dataset.daycell));
+    });
+  }
+  if(currentTab==="home") attachHomeEvents();
+  if(currentTab==="chores") attachChoreEvents();
+  if(currentTab==="lists") attachListEvents();
+  if(currentTab==="meals") attachMealEvents();
+  if(currentTab==="settings") attachSettingsEvents();
+}
+function shiftCal(dir){
+  if(calView==="month") calCursor=new Date(calCursor.getFullYear(),calCursor.getMonth()+dir,1);
+  else if(calView==="week") calCursor=addDays(calCursor,7*dir);
+  else calCursor=addDays(calCursor,dir);
+  renderTab();
+}
+
+function openDayModal(dateIso){
+  const d=new Date(dateIso+"T00:00:00");
+  const dayEvents=eventsForDay(d);
+  showModal(`
+    <h3>${MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}</h3>
+    ${dayEvents.length? dayEvents.map(e=>`
+      <div class="itemRow">
+        <div style="width:10px;height:10px;border-radius:50%;background:${profileColor(e.profileId)}"></div>
+        <div class="rowText">${e.allDay?'':fmtTime(e.start)+' — '}${escapeHtml(e.title)}${e.feedId?' <span style="color:var(--muted);font-size:11px">(synced)</span>':''}</div>
+        ${!e.feedId? `<button class="smallBtn" data-editev="${e.id}">Edit</button>`:''}
+      </div>`).join("") : `<p style="color:var(--muted)">No events.</p>`}
+    <div class="modalBtns">
+      <button class="btnCancel" id="modalClose">Close</button>
+      <button class="btnSave" id="modalAddEv">+ Add Event</button>
+    </div>
+  `);
+  document.getElementById("modalClose").onclick=closeModal;
+  document.getElementById("modalAddEv").onclick=()=>{ closeModal(); openEventModal(null, dateIso); };
+  document.querySelectorAll("[data-editev]").forEach(b=> b.onclick=()=>{
+    const ev=state.events.find(x=>x.id===b.dataset.editev);
+    closeModal(); openEventModal(ev, dateIso);
+  });
+}
+
+function openEventModal(ev, dateIso){
+  const editing=!!ev;
+  const d = ev? new Date(ev.start) : new Date(dateIso+"T09:00:00");
+  const dEnd = ev? new Date(ev.end) : new Date(dateIso+"T10:00:00");
+  const profOpts = state.profiles.map(p=>`<option value="${p.id}" ${ev&&ev.profileId===p.id?'selected':''}>${p.name}</option>`).join("");
+  showModal(`
+    <h3>${editing?'Edit':'Add'} Event</h3>
+    <div class="field"><label>Title</label><input id="fTitle" type="text" value="${escapeHtml(ev?ev.title:'')}"></div>
+    <div class="field row">
+      <div style="flex:1"><label>Date</label><input id="fDate" type="date" value="${isoDate(d)}"></div>
+      <div style="flex:1"><label>Start</label><input id="fStart" type="time" value="${pad(d.getHours())}:${pad(d.getMinutes())}"></div>
+      <div style="flex:1"><label>End</label><input id="fEnd" type="time" value="${pad(dEnd.getHours())}:${pad(dEnd.getMinutes())}"></div>
+    </div>
+    <div class="field"><label>Family member / color</label><select id="fProfile">${profOpts}</select></div>
+    <div class="field"><label>Location (optional)</label><input id="fLoc" type="text" value="${escapeHtml(ev?ev.location:'')}"></div>
+    <div class="field"><label><input type="checkbox" id="fAllDay" ${ev&&ev.allDay?'checked':''}> All day</label></div>
+    <div class="modalBtns">
+      ${editing?'<button class="btnDelete" id="modalDelete">Delete</button>':''}
+      <button class="btnCancel" id="modalClose">Cancel</button>
+      <button class="btnSave" id="modalSave">Save</button>
+    </div>
+  `);
+  document.getElementById("modalClose").onclick=closeModal;
+  if(editing) document.getElementById("modalDelete").onclick=()=>{
+    state.events = state.events.filter(x=>x.id!==ev.id); saveState(); closeModal(); renderTab();
+  };
+  document.getElementById("modalSave").onclick=()=>{
+    const dateVal=document.getElementById("fDate").value;
+    const startVal=document.getElementById("fStart").value;
+    const endVal=document.getElementById("fEnd").value;
+    const allDay=document.getElementById("fAllDay").checked;
+    const startISO = new Date(dateVal+"T"+(allDay?"00:00":startVal)).toISOString();
+    const endISO = new Date(dateVal+"T"+(allDay?"23:59":endVal)).toISOString();
+    const newEv = {
+      id: editing? ev.id : "m_"+Date.now(),
+      title: document.getElementById("fTitle").value || "(untitled)",
+      start:startISO, end:endISO, allDay,
+      profileId: document.getElementById("fProfile").value,
+      location: document.getElementById("fLoc").value,
+      notes: editing? ev.notes:""
+    };
+    if(editing) state.events = state.events.map(x=>x.id===ev.id? newEv : x);
+    else state.events.push(newEv);
+    saveState(); closeModal(); renderTab();
+  };
+}
+
+/* ---------------------------- CHORES TAB ---------------------------- */
+function weekRangeLabel(){
+  const ws=startOfWeek(new Date());
+  return isoDate(ws)+"_to_"+isoDate(addDays(ws,6));
+}
+function starCount(profileId){
+  const ws=startOfWeek(new Date());
+  let count=0;
+  for(let i=0;i<7;i++){
+    const dISO=isoDate(addDays(ws,i));
+    state.chores.filter(c=>c.profileId===profileId).forEach(c=>{
+      if(state.choreLog[c.id+"_"+dISO]) count++;
+    });
+  }
+  return count;
+}
+function starBalanceOf(profileId){ return state.starBalance[profileId]||0; }
+function choresDoneToday(profileId){
+  const todayISO = isoDate(new Date());
+  const myChores = state.chores.filter(c=>c.profileId===profileId);
+  const done = myChores.filter(c=>state.choreLog[c.id+"_"+todayISO]).length;
+  return {done, total: myChores.length};
+}
+function weeklyChoreStrip(profileId){
+  const ws=startOfWeek(new Date());
+  const myChores = state.chores.filter(c=>c.profileId===profileId);
+  const today=new Date();
+  const out=[];
+  for(let i=0;i<7;i++){
+    const d=addDays(ws,i);
+    const dISO=isoDate(d);
+    const done = myChores.filter(c=>state.choreLog[c.id+"_"+dISO]).length;
+    out.push({label:DOW[d.getDay()], done, total:myChores.length, isToday:sameDay(d,today)});
+  }
+  return out;
+}
+function routineProgress(routine, dateISO){
+  const done = routine.steps.filter(s=>state.routineLog[routine.id+"_"+s.id+"_"+dateISO]).length;
+  return {done, total: routine.steps.length};
+}
+function choresHTML(){
+  const todayISO = isoDate(new Date());
+  return `<div class="col2">` + state.profiles.map(p=>{
+    const myChores = state.chores.filter(c=>c.profileId===p.id);
+    const myRoutines = state.routines.filter(r=>r.profileId===p.id);
+    const myRedemptions = state.redemptions.filter(r=>r.profileId===p.id).slice(-2).reverse();
+    const todayCount = choresDoneToday(p.id);
+    const strip = weeklyChoreStrip(p.id);
+    return `<div class="card">
+      <h3><span class="titleGroup"><span class="iconBadge" style="background:${p.color}22;color:${p.color}">🧒</span><span style="color:${p.color}">${escapeHtml(p.name)}'s Chores</span></span>
+        <span style="display:flex;gap:6px;align-items:center"><span class="todayCounter">${todayCount.done}/${todayCount.total} today</span><span class="starTally">⭐ ${starCount(p.id)} this week</span></span>
+      </h3>
+      <div class="dayStrip">
+        ${strip.map(d=>`<div class="dayStripItem ${d.isToday?'today':''}">${d.label}<span class="dsCount">${d.done}/${d.total}</span></div>`).join("")}
+      </div>
+      ${myChores.map(c=>{
+        const done = !!state.choreLog[c.id+"_"+todayISO];
+        return `<div class="choreRow">
+          <div class="checkBox ${done?'done':''}" data-chore="${c.id}">${done?'✓':''}</div>
+          <div class="rowText ${done?'done':''}">${escapeHtml(c.name)} <span style="color:var(--muted);font-size:11px">(${c.frequency})</span></div>
+          <button class="smallBtn" data-delchore="${c.id}">✕</button>
+        </div>`;
+      }).join("") || `<p style="color:var(--muted);font-size:13px">No chores yet.</p>`}
+      <div class="addLine">
+        <input type="text" placeholder="New chore..." data-newchore="${p.id}">
+        <button data-addchorebtn="${p.id}">Add</button>
+      </div>
+
+      <div class="routinesSection">
+        <h4>🔁 Routines</h4>
+        ${myRoutines.map(r=>{
+          const prog = routineProgress(r, todayISO);
+          const complete = prog.total>0 && prog.done===prog.total;
+          return `<div class="routineCard">
+            <div class="routineHead">
+              <b>${escapeHtml(r.name)}</b>
+              <span style="display:flex;align-items:center;gap:8px">
+                <span class="routineProgress">${prog.done}/${prog.total}</span>
+                <button class="smallBtn" data-delroutine="${r.id}">✕</button>
+              </span>
+            </div>
+            ${r.steps.map(s=>{
+              const sdone = !!state.routineLog[r.id+"_"+s.id+"_"+todayISO];
+              return `<div class="routineStep">
+                <div class="checkBox ${sdone?'done':''}" data-routinestep="${r.id}|${s.id}">${sdone?'✓':''}</div>
+                <div class="rowText ${sdone?'done':''}">${escapeHtml(s.text)}</div>
+              </div>`;
+            }).join("")}
+            ${complete? `<div class="routineDone">🎉 Routine complete!</div>` : ""}
+          </div>`;
+        }).join("") || `<p style="color:var(--muted);font-size:13px">No routines yet — group steps like "brush teeth, get dressed, eat breakfast" into a Morning Routine below.</p>`}
+        <div class="field"><input type="text" placeholder="Routine name (e.g. Morning Routine)" data-newroutinename="${p.id}"></div>
+        <div class="field"><textarea rows="2" placeholder="One step per line: brush teeth&#10;get dressed&#10;eat breakfast" data-newroutinesteps="${p.id}"></textarea></div>
+        <button class="miniBtn" data-addroutinebtn="${p.id}">+ Add Routine</button>
+      </div>
+
+      <div class="rewardsSection">
+        <h4>🎁 Rewards <span class="balancePill">⭐ ${starBalanceOf(p.id)} saved</span></h4>
+        ${state.rewards.length? state.rewards.map(r=>{
+          const afford = starBalanceOf(p.id) >= r.cost;
+          return `<div class="rewardRow">
+            <div class="rewardName">${escapeHtml(r.name)}</div>
+            <div class="rewardCost">⭐ ${r.cost}</div>
+            <button class="redeemBtn" data-redeem="${p.id}|${r.id}" ${afford?'':'disabled'}>Redeem</button>
+          </div>`;
+        }).join("") : `<p style="color:var(--muted);font-size:13px">No rewards set up yet — add some in Settings.</p>`}
+        ${myRedemptions.length? `<div class="redeemLog">${myRedemptions.map(r=>`Redeemed "${escapeHtml(r.rewardName)}" on ${new Date(r.date).toLocaleDateString()}`).join(" · ")}</div>` : ""}
+      </div>
+    </div>`;
+  }).join("") + `</div>`;
+}
+function toggleChoreDone(id){
+  const todayISO=isoDate(new Date());
+  const key=id+"_"+todayISO;
+  const chore = state.chores.find(c=>c.id===id);
+  if(!chore) return;
+  const wasDone = !!state.choreLog[key];
+  state.choreLog[key] = !wasDone;
+  const bal = starBalanceOf(chore.profileId);
+  state.starBalance[chore.profileId] = wasDone ? Math.max(0, bal-1) : bal+1;
+  saveState(); renderTab();
+}
+function attachChoreEvents(){
+  document.querySelectorAll("[data-chore]").forEach(el=> el.onclick=()=> toggleChoreDone(el.dataset.chore));
+  document.querySelectorAll("[data-delchore]").forEach(el=> el.onclick=()=>{
+    state.chores = state.chores.filter(c=>c.id!==el.dataset.delchore);
+    saveState(); renderTab();
+  });
+  document.querySelectorAll("[data-addchorebtn]").forEach(btn=> btn.onclick=()=>{
+    const pid=btn.dataset.addchorebtn;
+    const input=document.querySelector(`[data-newchore="${pid}"]`);
+    const name=input.value.trim(); if(!name) return;
+    state.chores.push({id:"c_"+Date.now(), name, profileId:pid, frequency:"daily"});
+    saveState(); renderTab();
+    const freshInput=document.querySelector(`[data-newchore="${pid}"]`);
+    if(freshInput) freshInput.focus();
+  });
+  document.querySelectorAll("[data-redeem]").forEach(btn=> btn.onclick=()=>{
+    const [pid,rid]=btn.dataset.redeem.split("|");
+    const reward=state.rewards.find(r=>r.id===rid); if(!reward) return;
+    if(starBalanceOf(pid) < reward.cost) return;
+    state.starBalance[pid] = starBalanceOf(pid) - reward.cost;
+    state.redemptions.push({id:"rd_"+Date.now(), profileId:pid, rewardName:reward.name, cost:reward.cost, date:new Date().toISOString()});
+    saveState(); renderTab();
+  });
+
+  // ---- Routines ----
+  document.querySelectorAll("[data-routinestep]").forEach(el=> el.onclick=()=>{
+    const [rid,sid]=el.dataset.routinestep.split("|");
+    const routine = state.routines.find(r=>r.id===rid); if(!routine) return;
+    const todayISO=isoDate(new Date());
+    const key=rid+"_"+sid+"_"+todayISO;
+    const wasCompleteBefore = routineProgress(routine, todayISO).total>0 && routineProgress(routine, todayISO).done===routineProgress(routine, todayISO).total;
+    state.routineLog[key] = !state.routineLog[key];
+    const nowProgress = routineProgress(routine, todayISO);
+    const isCompleteNow = nowProgress.total>0 && nowProgress.done===nowProgress.total;
+    const bonusKey = rid+"_bonus_"+todayISO;
+    if(isCompleteNow && !wasCompleteBefore && !state.routineLog[bonusKey]){
+      state.starBalance[routine.profileId] = starBalanceOf(routine.profileId) + 1;
+      state.routineLog[bonusKey] = true;
+    } else if(!isCompleteNow && state.routineLog[bonusKey]){
+      state.starBalance[routine.profileId] = Math.max(0, starBalanceOf(routine.profileId) - 1);
+      state.routineLog[bonusKey] = false;
+    }
+    saveState(); renderTab();
+  });
+  document.querySelectorAll("[data-delroutine]").forEach(btn=> btn.onclick=()=>{
+    state.routines = state.routines.filter(r=>r.id!==btn.dataset.delroutine);
+    saveState(); renderTab();
+  });
+  document.querySelectorAll("[data-addroutinebtn]").forEach(btn=> btn.onclick=()=>{
+    const pid=btn.dataset.addroutinebtn;
+    const nameInput=document.querySelector(`[data-newroutinename="${pid}"]`);
+    const stepsInput=document.querySelector(`[data-newroutinesteps="${pid}"]`);
+    const name=nameInput.value.trim(); if(!name) return;
+    const steps=stepsInput.value.split("\n").map(s=>s.trim()).filter(Boolean)
+      .map((text,i)=>({id:"s_"+Date.now()+"_"+i, text}));
+    if(!steps.length) return;
+    state.routines.push({id:"rt_"+Date.now(), name, profileId:pid, steps});
+    saveState(); renderTab();
+  });
+}
+
+/* ---------------------------- LISTS TAB ---------------------------- */
+function listsHTML(){
+  return `<div class="col2">` + state.lists.map(l=>`
+    <div class="card">
+      <h3><input type="text" class="editableText editableTitle" style="color:${l.color}" data-listname="${l.id}" value="${escapeHtml(l.name)}"><button class="smallBtn" data-dellist="${l.id}">Delete list</button></h3>
+      ${l.items.map(it=>`
+        <div class="itemRow">
+          <div class="checkBox ${it.done?'done':''}" data-item="${l.id}|${it.id}">${it.done?'✓':''}</div>
+          <input type="text" class="editableText rowText ${it.done?'done':''}" data-itemtext="${l.id}|${it.id}" value="${escapeHtml(it.text)}">
+          <button class="smallBtn" data-delitem="${l.id}|${it.id}">✕</button>
+        </div>`).join("") || `<p style="color:var(--muted);font-size:13px">Empty.</p>`}
+      <div class="addLine">
+        <input type="text" placeholder="Add item..." data-newitem="${l.id}">
+        <button data-additembtn="${l.id}">Add</button>
+      </div>
+    </div>`).join("")
+    + `<div class="card">
+        <h3>New List</h3>
+        <div class="addLine"><input type="text" id="newListName" placeholder="List name..."><button id="addListBtn">Create</button></div>
+      </div>`
+    + `</div>`;
+}
+function attachListEvents(){
+  document.querySelectorAll("[data-item]").forEach(el=> el.onclick=()=>{
+    const [lid,iid]=el.dataset.item.split("|");
+    const list=state.lists.find(l=>l.id===lid); const item=list.items.find(i=>i.id===iid);
+    item.done=!item.done; saveState(); renderTab();
+  });
+  document.querySelectorAll("[data-delitem]").forEach(el=> el.onclick=()=>{
+    const [lid,iid]=el.dataset.delitem.split("|");
+    const list=state.lists.find(l=>l.id===lid); list.items=list.items.filter(i=>i.id!==iid);
+    saveState(); renderTab();
+  });
+  document.querySelectorAll("[data-dellist]").forEach(el=> el.onclick=()=>{
+    state.lists=state.lists.filter(l=>l.id!==el.dataset.dellist); saveState(); renderTab();
+  });
+  document.querySelectorAll("[data-additembtn]").forEach(btn=> btn.onclick=()=>{
+    const lid=btn.dataset.additembtn;
+    const input=document.querySelector(`[data-newitem="${lid}"]`);
+    const text=input.value.trim(); if(!text) return;
+    state.lists.find(l=>l.id===lid).items.push({id:"i_"+Date.now(), text, done:false});
+    saveState(); renderTab();
+    // Re-focus the (freshly rendered, now-empty) input so you can keep
+    // hitting Enter to add several items in a row without tapping back in.
+    const freshInput=document.querySelector(`[data-newitem="${lid}"]`);
+    if(freshInput) freshInput.focus();
+  });
+  const addListBtn=document.getElementById("addListBtn");
+  if(addListBtn) addListBtn.onclick=()=>{
+    const name=document.getElementById("newListName").value.trim(); if(!name) return;
+    const color=DEFAULT_COLORS[state.lists.length % DEFAULT_COLORS.length];
+    state.lists.push({id:"l_"+Date.now(), name, color, items:[]});
+    saveState(); renderTab();
+  };
+
+  // ---- Edit list name / item text in place, no delete-and-redo needed ----
+  function commitListName(inp){
+    const list=state.lists.find(l=>l.id===inp.dataset.listname); if(!list) return;
+    const val=inp.value.trim();
+    list.name = val || list.name; // never save a blank list name
+    inp.value = list.name;
+    saveState();
+  }
+  document.querySelectorAll("[data-listname]").forEach(inp=>{
+    inp.addEventListener("change", ()=> commitListName(inp));
+    inp.addEventListener("keydown", (e)=>{ if(e.key==="Enter"){ e.preventDefault(); commitListName(inp); inp.blur(); } });
+  });
+  function commitItemText(inp){
+    const [lid,iid]=inp.dataset.itemtext.split("|");
+    const item=state.lists.find(l=>l.id===lid)?.items.find(i=>i.id===iid); if(!item) return;
+    const val=inp.value.trim();
+    item.text = val || item.text; // never save a blank item
+    inp.value = item.text;
+    saveState();
+  }
+  document.querySelectorAll("[data-itemtext]").forEach(inp=>{
+    inp.addEventListener("change", ()=> commitItemText(inp));
+    inp.addEventListener("keydown", (e)=>{ if(e.key==="Enter"){ e.preventDefault(); commitItemText(inp); inp.blur(); } });
+  });
+}
+
+/* ---------------------------- MEALS TAB ---------------------------- */
+let mealWeekStart=startOfWeek(new Date());
+function mealsHTML(){
+  let html=`<div class="cal-toolbar">
+    <div class="navBtns"><button id="mealPrev">‹</button><h2>Week of ${MONTHS[mealWeekStart.getMonth()]} ${mealWeekStart.getDate()}</h2><button id="mealNext">›</button></div>
+  </div><div class="mealGrid">`;
+  for(let i=0;i<7;i++){
+    const d=addDays(mealWeekStart,i); const iso=isoDate(d);
+    const m = state.meals[iso] || {breakfast:"",lunch:"",dinner:""};
+    html+=`<div class="mealCol">
+      <h4>${DOW[d.getDay()]} ${d.getDate()}</h4>
+      ${["breakfast","lunch","dinner"].map(slot=>`
+        <div class="mealSlot">${slot[0].toUpperCase()+slot.slice(1)}
+          <textarea data-meal="${iso}|${slot}">${escapeHtml(m[slot]||"")}</textarea>
+        </div>`).join("")}
+    </div>`;
+  }
+  html+="</div>";
+  return html;
+}
+function attachMealEvents(){
+  document.getElementById("mealPrev").onclick=()=>{ mealWeekStart=addDays(mealWeekStart,-7); renderTab(); };
+  document.getElementById("mealNext").onclick=()=>{ mealWeekStart=addDays(mealWeekStart,7); renderTab(); };
+  document.querySelectorAll("[data-meal]").forEach(ta=>{
+    ta.addEventListener("change",()=>{
+      const [iso,slot]=ta.dataset.meal.split("|");
+      if(!state.meals[iso]) state.meals[iso]={breakfast:"",lunch:"",dinner:""};
+      state.meals[iso][slot]=ta.value;
+      saveState();
+    });
+  });
+}
+
+/* ---------------------------- SETTINGS TAB ---------------------------- */
+function settingsHTML(){
+  return `
+  <div class="col2">
+    <div class="card">
+      <h3>Family Members</h3>
+      ${state.profiles.map(p=>`
+        <div class="settRow">
+          <div class="colorDot" style="background:${p.color}"></div>
+          <input type="text" value="${escapeHtml(p.name)}" data-profname="${p.id}">
+          <button class="miniBtn danger" data-delprof="${p.id}">Remove</button>
+        </div>`).join("")}
+      <div class="addLine"><input type="text" id="newProfName" placeholder="Add family member..."><button id="addProfBtn">Add</button></div>
+    </div>
+
+    <div class="card">
+      <h3>Calendar Sync</h3>
+      <p class="helpText">Paste your Google or Outlook calendar's <b>public ICS/webcal link</b> (Google Calendar → Settings → your calendar → "Secret address in iCal format"; Outlook → Calendar → Share → Publish a calendar → ICS link).</p>
+      ${state.feeds.map(f=>`
+        <div class="settRow" style="flex-wrap:wrap">
+          <input type="text" value="${escapeHtml(f.label)}" data-feedlabel="${f.id}" placeholder="Label" style="max-width:120px">
+          <input type="url" value="${escapeHtml(f.url)}" data-feedurl="${f.id}" placeholder="ICS link">
+          <select data-feedprof="${f.id}">${state.profiles.map(p=>`<option value="${p.id}" ${p.id===f.profileId?'selected':''}>${p.name}</option>`).join("")}</select>
+          <button class="miniBtn danger" data-delfeed="${f.id}">Remove</button>
+          ${f.lastError? `<div style="width:100%;color:#c0392b;font-size:11px">Last sync failed: ${escapeHtml(f.lastError)}</div>`:''}
+          ${f.lastSync && !f.lastError? `<div style="width:100%;color:var(--muted);font-size:11px">Last synced ${new Date(f.lastSync).toLocaleString()}</div>`:''}
+        </div>`).join("")}
+      <div class="addLine">
+        <input type="text" id="newFeedLabel" placeholder="Label (e.g. Google)" style="max-width:130px">
+        <input type="url" id="newFeedUrl" placeholder="Paste ICS link here...">
+        <button id="addFeedBtn">Add</button>
+      </div>
+      <div style="margin-top:10px"><button class="miniBtn" id="syncNowBtn">🔄 Sync now</button></div>
+      <p class="helpText">CORS proxy in use: <input type="text" id="proxyTemplate" value="${escapeHtml(state.settings.proxyTemplate)}" style="width:100%;margin-top:4px;padding:6px;border:1px solid var(--line);border-radius:6px">
+      If a feed keeps failing, try swapping in <code>https://corsproxy.io/?url={url}</code> instead. Free proxies aren't 100% guaranteed — ask Claude for a more durable option if this becomes unreliable.</p>
+    </div>
+
+    <div class="card">
+      <h3>Weather Location</h3>
+      <button class="miniBtn" id="useMyLocationBtn" style="margin-bottom:10px">📍 Use my current location</button>
+      <div class="addLine"><input type="text" id="cityInput" placeholder="Or type a city name" value="${escapeHtml(state.settings.cityName)}"><button id="setCityBtn">Save</button></div>
+      <p class="helpText" id="locationStatus">${state.settings.lat? "Currently: "+escapeHtml(state.settings.cityName):"No location set yet."}</p>
+      <p class="helpText">Your browser will ask permission the first time — auto-detect only works once this page is opened over a proper https:// link (not a bare local file).</p>
+    </div>
+
+    <div class="card">
+      <h3>Countdown Banner</h3>
+      <div class="field"><label>Event name</label><input type="text" id="countdownTitle" value="${escapeHtml(state.settings.countdownTitle)}"></div>
+      <div class="field"><label>Date</label><input type="date" id="countdownDate" value="${state.settings.countdownDate}"></div>
+      <button class="miniBtn" id="saveCountdownBtn">Save</button>
+    </div>
+
+    <div class="card">
+      <h3><span class="titleGroup"><span class="iconBadge" style="background:#fff0d6;color:#b9790a">🎁</span>Rewards Catalog</span><span class="newTag">New</span></h3>
+      <p class="helpText">Shared list — any family member can redeem these with their stars.</p>
+      ${state.rewards.map(r=>`
+        <div class="settRow">
+          <input type="text" value="${escapeHtml(r.name)}" data-rewardname="${r.id}">
+          <input type="text" inputmode="numeric" value="${r.cost}" data-rewardcost="${r.id}" style="max-width:70px;flex:none" title="Star cost">
+          <button class="miniBtn danger" data-delreward="${r.id}">Remove</button>
+        </div>`).join("")}
+      <div class="addLine">
+        <input type="text" id="newRewardName" placeholder="Reward name...">
+        <input type="text" id="newRewardCost" inputmode="numeric" placeholder="⭐ cost" style="max-width:80px">
+        <button id="addRewardBtn">Add</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3><span class="titleGroup"><span class="iconBadge" style="background:#dcecff;color:#1b6fb8">🖼️</span>Photo Screensaver</span><span class="newTag">New</span></h3>
+      <p class="helpText">When nobody's touched the screen for a while, show family photos full-screen instead of the calendar.</p>
+      <label class="settRow" style="border:none"><input type="checkbox" id="screensaverEnabled" ${state.settings.screensaverEnabled?'checked':''}> Enable photo screensaver</label>
+      <div class="field"><label>Start after (minutes idle)</label><input type="text" inputmode="numeric" id="screensaverIdle" value="${state.settings.screensaverIdleMinutes}"></div>
+      <div class="photoThumbs">
+        ${state.photos.map(ph=>`<div class="photoThumb"><img src="${ph.data}"><button data-delphoto="${ph.id}">✕</button></div>`).join("")}
+      </div>
+      <input type="file" id="photoInput" accept="image/*" multiple style="display:none">
+      <button class="miniBtn" id="addPhotoBtn">📷 Add photos</button>
+      <p class="helpText">Photos are resized and stored right on this device (not uploaded anywhere) — keep it to a reasonable number, since browser storage is limited (roughly 20-30 photos is a safe range).</p>
+    </div>
+
+    <div class="card">
+      <h3>Backup / Move to another device</h3>
+      <p class="helpText">This data lives only on this device's browser. Use these to back it up or copy it to another tablet/phone.</p>
+      <button class="miniBtn" id="exportBtn">⬇ Export backup file</button>
+      <input type="file" id="importFile" accept="application/json" style="display:none">
+      <button class="miniBtn" id="importBtn">⬆ Import backup file</button>
+    </div>
+  </div>`;
+}
+function attachSettingsEvents(){
+  document.querySelectorAll("[data-profname]").forEach(inp=> inp.addEventListener("change",()=>{
+    profileById(inp.dataset.profname).name = inp.value; saveState(); renderGreeting();
+  }));
+  document.querySelectorAll("[data-delprof]").forEach(btn=> btn.onclick=()=>{
+    state.profiles = state.profiles.filter(p=>p.id!==btn.dataset.delprof); saveState(); renderGreeting(); renderTab();
+  });
+  const addProfBtn=document.getElementById("addProfBtn");
+  if(addProfBtn) addProfBtn.onclick=()=>{
+    const name=document.getElementById("newProfName").value.trim(); if(!name) return;
+    const color=DEFAULT_COLORS[state.profiles.length % DEFAULT_COLORS.length];
+    state.profiles.push({id:"p_"+Date.now(), name, color});
+    saveState(); renderGreeting(); renderTab();
+  };
+
+  document.querySelectorAll("[data-feedlabel]").forEach(inp=> inp.addEventListener("change",()=>{
+    state.feeds.find(f=>f.id===inp.dataset.feedlabel).label=inp.value; saveState();
+  }));
+  document.querySelectorAll("[data-feedurl]").forEach(inp=> inp.addEventListener("change",()=>{
+    state.feeds.find(f=>f.id===inp.dataset.feedurl).url=inp.value; saveState();
+  }));
+  document.querySelectorAll("[data-feedprof]").forEach(sel=> sel.addEventListener("change",()=>{
+    state.feeds.find(f=>f.id===sel.dataset.feedprof).profileId=sel.value; saveState();
+  }));
+  document.querySelectorAll("[data-delfeed]").forEach(btn=> btn.onclick=()=>{
+    const fid=btn.dataset.delfeed;
+    state.feeds=state.feeds.filter(f=>f.id!==fid);
+    state.events=state.events.filter(e=>e.feedId!==fid);
+    saveState(); renderTab();
+  });
+  const addFeedBtn=document.getElementById("addFeedBtn");
+  if(addFeedBtn) addFeedBtn.onclick=()=>{
+    const label=document.getElementById("newFeedLabel").value.trim()||"Calendar";
+    const url=document.getElementById("newFeedUrl").value.trim(); if(!url) return;
+    state.feeds.push({id:"f_"+Date.now(), label, url, profileId:state.profiles[0]?.id||""});
+    saveState(); renderTab(); syncAllFeeds(true);
+  };
+  const syncNowBtn=document.getElementById("syncNowBtn");
+  if(syncNowBtn) syncNowBtn.onclick=()=> syncAllFeeds(true);
+  const proxyTemplate=document.getElementById("proxyTemplate");
+  if(proxyTemplate) proxyTemplate.addEventListener("change",()=>{
+    state.settings.proxyTemplate = proxyTemplate.value; saveState();
+  });
+
+  const setCityBtn=document.getElementById("setCityBtn");
+  if(setCityBtn) setCityBtn.onclick=async ()=>{
+    const name=document.getElementById("cityInput").value.trim(); if(!name) return;
+    try{
+      const g = await geocodeCity(name);
+      state.settings.lat=g.lat; state.settings.lon=g.lon; state.settings.cityName=g.label;
+      saveState(); renderTab(); refreshWeather();
+    }catch(e){ alert("Couldn't find that city. Try a nearby larger city name."); }
+  };
+
+  const useMyLocationBtn=document.getElementById("useMyLocationBtn");
+  if(useMyLocationBtn) useMyLocationBtn.onclick=()=>{
+    const statusEl=document.getElementById("locationStatus");
+    if(!("geolocation" in navigator)){
+      if(statusEl) statusEl.textContent="This browser doesn't support auto-detecting location — type a city instead.";
+      return;
+    }
+    if(statusEl) statusEl.textContent="Finding your location…";
+    navigator.geolocation.getCurrentPosition(async (pos)=>{
+      const {latitude, longitude} = pos.coords;
+      const label = await reverseGeocode(latitude, longitude);
+      state.settings.lat=latitude; state.settings.lon=longitude; state.settings.cityName=label;
+      saveState(); renderTab(); refreshWeather();
+    }, (err)=>{
+      // err.code: 1=denied, 2=unavailable, 3=timeout
+      const msg = err.code===1
+        ? "Location access was denied — you can allow it in the browser's site settings, or just type a city below."
+        : "Couldn't get your location — try typing a city name instead.";
+      if(statusEl) statusEl.textContent=msg;
+    }, {enableHighAccuracy:false, timeout:10000, maximumAge:600000});
+  };
+
+  const saveCountdownBtn=document.getElementById("saveCountdownBtn");
+  if(saveCountdownBtn) saveCountdownBtn.onclick=()=>{
+    state.settings.countdownTitle=document.getElementById("countdownTitle").value;
+    state.settings.countdownDate=document.getElementById("countdownDate").value;
+    saveState(); renderCountdown();
+  };
+
+  const exportBtn=document.getElementById("exportBtn");
+  if(exportBtn) exportBtn.onclick=()=>{
+    const blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"});
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(blob); a.download="kitchen-calendar-backup.json"; a.click();
+  };
+  const importBtn=document.getElementById("importBtn");
+  const importFile=document.getElementById("importFile");
+  if(importBtn) importBtn.onclick=()=> importFile.click();
+  if(importFile) importFile.addEventListener("change",()=>{
+    const file=importFile.files[0]; if(!file) return;
+    const reader=new FileReader();
+    reader.onload=()=>{
+      try{
+        const data=JSON.parse(reader.result);
+        state=Object.assign(defaultState(), data);
+        state.settings = Object.assign(defaultState().settings, data.settings||{});
+        saveState(); renderTab(); renderGreeting(); refreshWeather();
+        alert("Backup imported.");
+      }catch(e){ alert("That file didn't look like a valid backup."); }
+    };
+    reader.readAsText(file);
+  });
+
+  // ---- Rewards catalog ----
+  document.querySelectorAll("[data-rewardname]").forEach(inp=> inp.addEventListener("change",()=>{
+    state.rewards.find(r=>r.id===inp.dataset.rewardname).name = inp.value; saveState();
+  }));
+  document.querySelectorAll("[data-rewardcost]").forEach(inp=> inp.addEventListener("change",()=>{
+    const n=parseInt(inp.value,10);
+    state.rewards.find(r=>r.id===inp.dataset.rewardcost).cost = isNaN(n)? 1 : Math.max(1,n);
+    saveState(); renderTab();
+  }));
+  document.querySelectorAll("[data-delreward]").forEach(btn=> btn.onclick=()=>{
+    state.rewards = state.rewards.filter(r=>r.id!==btn.dataset.delreward);
+    saveState(); renderTab();
+  });
+  const addRewardBtn=document.getElementById("addRewardBtn");
+  if(addRewardBtn) addRewardBtn.onclick=()=>{
+    const name=document.getElementById("newRewardName").value.trim(); if(!name) return;
+    const cost=Math.max(1, parseInt(document.getElementById("newRewardCost").value,10)||1);
+    state.rewards.push({id:"r_"+Date.now(), name, cost});
+    saveState(); renderTab();
+  };
+
+  // ---- Photo screensaver ----
+  const ssEnabled=document.getElementById("screensaverEnabled");
+  if(ssEnabled) ssEnabled.addEventListener("change",()=>{
+    state.settings.screensaverEnabled = ssEnabled.checked; saveState();
+  });
+  const ssIdle=document.getElementById("screensaverIdle");
+  if(ssIdle) ssIdle.addEventListener("change",()=>{
+    const n=parseInt(ssIdle.value,10);
+    state.settings.screensaverIdleMinutes = isNaN(n)? 5 : Math.max(1,n);
+    saveState();
+  });
+  const addPhotoBtn=document.getElementById("addPhotoBtn");
+  const photoInput=document.getElementById("photoInput");
+  if(addPhotoBtn) addPhotoBtn.onclick=()=> photoInput.click();
+  if(photoInput) photoInput.addEventListener("change",()=>{
+    const files=[...photoInput.files];
+    let remaining=files.length;
+    if(!remaining) return;
+    files.forEach(file=>{
+      resizeImageFile(file, 1600, 0.72).then(dataUrl=>{
+        state.photos.push({id:"ph_"+Date.now()+"_"+Math.random().toString(36).slice(2), data:dataUrl});
+        saveState();
+        remaining--;
+        if(remaining===0) renderTab();
+      }).catch(()=>{ remaining--; if(remaining===0) renderTab(); });
+    });
+  });
+  document.querySelectorAll("[data-delphoto]").forEach(btn=> btn.onclick=()=>{
+    state.photos = state.photos.filter(ph=>ph.id!==btn.dataset.delphoto);
+    saveState(); renderTab();
+  });
+}
+
+// Resizes/compresses an image file client-side before it goes into
+// localStorage, so a handful of family photos doesn't blow past the
+// browser's storage quota. Returns a JPEG data URL.
+function resizeImageFile(file, maxDim, quality){
+  return new Promise((resolve, reject)=>{
+    const reader=new FileReader();
+    reader.onload=()=>{
+      const img=new Image();
+      img.onload=()=>{
+        let {width,height}=img;
+        if(width>maxDim || height>maxDim){
+          if(width>height){ height=Math.round(height*maxDim/width); width=maxDim; }
+          else { width=Math.round(width*maxDim/height); height=maxDim; }
+        }
+        const canvas=document.createElement("canvas");
+        canvas.width=width; canvas.height=height;
+        canvas.getContext("2d").drawImage(img,0,0,width,height);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.onerror=reject;
+      img.src=reader.result;
+    };
+    reader.onerror=reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+/* ---------------------------- MODAL HELPERS ---------------------------- */
+function showModal(innerHtml){
+  closeModal();
+  const overlay=document.createElement("div");
+  overlay.className="overlay"; overlay.id="modalOverlay";
+  overlay.innerHTML = `<div class="modal">${innerHtml}</div>`;
+  overlay.addEventListener("click",(e)=>{ if(e.target===overlay) closeModal(); });
+  document.body.appendChild(overlay);
+}
+function closeModal(){
+  const o=document.getElementById("modalOverlay"); if(o) o.remove();
+}
+
+/* ---------------------------- PHOTO SCREENSAVER ---------------------------- */
+let lastActivity = Date.now();
+let screensaverActive = false;
+let screensaverTimer = null;
+let screensaverPhotoIndex = 0;
+
+function markActivity(){
+  lastActivity = Date.now();
+  if(screensaverActive) hideScreensaver();
+}
+["click","touchstart","mousemove","keydown","scroll"].forEach(evt=>{
+  document.addEventListener(evt, markActivity, {passive:true});
+});
+
+// Let Enter submit any "type something, tap Add/Save" row (list items,
+// chores, family members, rewards, calendar feeds, city, etc.) instead of
+// forcing a tap on the button. Scoped to plain text/url/search inputs so it
+// never hijacks Enter inside a multi-line textarea (like routine steps).
+document.addEventListener("keydown", (e)=>{
+  if(e.key !== "Enter") return;
+  const target = e.target;
+  if(!target || target.tagName !== "INPUT") return;
+  if(target.type && !["text","url","search","tel",""].includes(target.type)) return;
+  const addLine = target.closest(".addLine");
+  if(!addLine) return;
+  const btn = addLine.querySelector("button");
+  if(btn){ e.preventDefault(); btn.click(); }
+});
+
+function checkIdleForScreensaver(){
+  const s=state.settings;
+  if(!s.screensaverEnabled || !state.photos.length || screensaverActive) return;
+  const idleMinutes = (Date.now()-lastActivity)/60000;
+  if(idleMinutes >= Math.max(1, s.screensaverIdleMinutes||5)) showScreensaver();
+}
+function showScreensaver(){
+  if(screensaverActive || !state.photos.length) return;
+  screensaverActive = true;
+  screensaverPhotoIndex = 0;
+  const overlay=document.createElement("div");
+  overlay.className="screensaverOverlay";
+  overlay.id="screensaverOverlay";
+  overlay.innerHTML = `<img class="ssImg" id="ssImg" src="${state.photos[0].data}">
+    <div class="screensaverInfo">
+      <div class="ssTime" id="ssTime">--:--</div>
+      <div class="ssDate" id="ssDate"></div>
+      <div class="ssWeather" id="ssWeather"></div>
+      <div class="ssHint">Tap anywhere to go back</div>
+    </div>`;
+  document.body.appendChild(overlay);
+  updateScreensaverClock();
+  screensaverTimer = setInterval(()=>{
+    screensaverPhotoIndex = (screensaverPhotoIndex+1) % state.photos.length;
+    const img=document.getElementById("ssImg");
+    if(img) img.src = state.photos[screensaverPhotoIndex].data;
+    updateScreensaverClock();
+  }, 8000);
+}
+function updateScreensaverClock(){
+  const t=document.getElementById("ssTime"), d=document.getElementById("ssDate"), w=document.getElementById("ssWeather");
+  if(!t) return;
+  const now=new Date();
+  let h=now.getHours(); const ampm=h>=12?"PM":"AM"; h=h%12; if(h===0)h=12;
+  t.textContent = h+":"+pad(now.getMinutes())+" "+ampm;
+  d.textContent = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"][now.getDay()]+", "+MONTHS[now.getMonth()]+" "+now.getDate();
+  if(weatherCache){
+    w.textContent = `${weatherEmoji(weatherCache.current.weather_code)} ${Math.round(weatherCache.current.temperature_2m)}° · ${weatherText(weatherCache.current.weather_code)}`;
+  }
+}
+function hideScreensaver(){
+  screensaverActive = false;
+  if(screensaverTimer){ clearInterval(screensaverTimer); screensaverTimer=null; }
+  const overlay=document.getElementById("screensaverOverlay");
+  if(overlay) overlay.remove();
+}
+
+/* ---------------------------- BOOT ---------------------------- */
+function boot(){
+  renderTab();
+  tickClock(); setInterval(tickClock, 15000);
+  if(state.settings.lat!=null){ refreshWeather(); setInterval(refreshWeather, 60*60*1000); }
+  if(state.feeds.length){ syncAllFeeds(false); }
+  setInterval(()=> syncAllFeeds(false), Math.max(5,state.settings.syncMinutes||20)*60*1000);
+  setInterval(checkIdleForScreensaver, 15000);
+}
+boot();
+
+// Register the service worker so the app shell installs to the home screen
+// and still opens (though live calendar/weather sync needs wifi/data).
+if("serviceWorker" in navigator){
+  window.addEventListener("load", ()=>{
+    navigator.serviceWorker.register("service-worker.js").catch(()=>{});
+  });
+}
+</script>
+</body>
+</html>
