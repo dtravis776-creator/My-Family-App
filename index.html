@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>My Family</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0d3b3e">
@@ -25,13 +25,15 @@
     -webkit-user-select:none;user-select:none;overflow:hidden;}
   #app{display:flex;flex-direction:column;height:100vh;width:100vw;}
   @supports (height: 100dvh){ #app{height:100dvh;} }
-  button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit;}
+  button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit;
+    -webkit-tap-highlight-color:transparent;touch-action:manipulation;}
   input,select,textarea{font-family:inherit;font-size:16px;}
   h1,h2,h3{font-family:var(--serif);}
 
   /* ---------- HEADER ---------- */
   header{display:flex;align-items:center;justify-content:space-between;
-    padding:16px 24px;background:var(--header);color:var(--headerInk);flex-shrink:0;}
+    padding:16px max(24px, env(safe-area-inset-right)) 16px max(24px, env(safe-area-inset-left));
+    background:var(--header);color:var(--headerInk);flex-shrink:0;}
   #clockBlock{min-width:220px;max-width:360px;}
   #appName{font-size:15px;font-weight:700;color:#ffd9a8;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   #clockTime{font-size:34px;font-weight:700;line-height:1;font-family:var(--serif);}
@@ -57,7 +59,8 @@
   .newTag{background:var(--accent);color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;
     text-transform:uppercase;letter-spacing:.5px;}
 
-  main{flex:1;overflow:auto;padding:16px 22px 22px;}
+  main{flex:1;overflow:auto;-webkit-overflow-scrolling:touch;
+    padding:16px max(22px, env(safe-area-inset-right)) max(22px, env(safe-area-inset-bottom)) max(22px, env(safe-area-inset-left));}
 
   /* ---------- CALENDAR TOOLBAR ---------- */
   .cal-toolbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:10px;}
@@ -117,6 +120,15 @@
   input.editableText:focus{outline:none;border-color:var(--accent);background:#fff;}
   input.editableTitle{flex:1;font-size:18px;font-weight:700;font-family:var(--serif);min-width:0;}
   .smallBtn{font-size:13px;color:var(--muted);padding:4px 8px;}
+  .recurToggle{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted);white-space:nowrap;flex-shrink:0;cursor:pointer;}
+  .recurToggle input{margin:0;}
+
+  /* ---------- HOME: tappable sections that jump to the relevant tab ---------- */
+  .homeLink{cursor:pointer;border-radius:10px;margin:0 -8px;padding:2px 8px;transition:background .12s;}
+  .homeLink:hover{background:#f3f9f5;}
+  .homeLink:active{background:#e3f2ef;}
+  .homeLink.itemRow,.homeLink.choreRow{margin:0 -8px;padding-left:8px;padding-right:8px;}
+  .homeLinkArrow{color:var(--muted);font-size:12px;margin-left:4px;}
   .addLine{display:flex;gap:8px;margin-top:10px;}
   .addLine input{flex:1;padding:8px 10px;border:1px solid var(--line);border-radius:8px;}
   .addLine button{background:var(--accent);color:#fff;padding:8px 14px;border-radius:8px;font-weight:700;}
@@ -226,7 +238,7 @@
     nav .navIcon{font-size:17px;}
     nav .navLabel{font-size:10px;}
 
-    main{padding:10px 12px 16px;}
+    main{padding:10px max(12px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));}
     .cal-toolbar{gap:8px;}
     .cal-toolbar .navBtns{gap:6px;}
     .cal-toolbar h2{font-size:15px;min-width:0;margin:0 4px;}
@@ -257,6 +269,77 @@
 
     .modal{padding:16px;width:94%;}
     .field .row{flex-direction:column;gap:4px;}
+  }
+
+  /* ---------- PHONE (narrower than a tablet) ----------
+     Everything above already handles "narrow-ish" (tablet/kiosk) widths.
+     This block targets actual phones: bigger tap targets (44px is the
+     usual minimum comfortable touch size), no sideways scrolling except
+     where it's intentional (week view, meal planner), and a bit more
+     breathing room so it reads as an app rather than a shrunk-down site. */
+  @media (max-width: 480px){
+    html,body{overflow-x:hidden;}
+    header{padding-top:calc(10px + env(safe-area-inset-top));}
+    #appName{font-size:12px;}
+    #clockTime{font-size:24px;}
+    #weatherBlock .wDays{display:none;} /* multi-day strip doesn't fit; today's conditions still show */
+    #countdownChip{font-size:11px;padding:6px 10px;}
+
+    /* Nav: comfortably tappable, and never lets 6 labels overflow/wrap oddly. */
+    nav button{padding:10px 0;min-height:48px;justify-content:center;}
+    nav .navIcon{font-size:18px;}
+    nav .navLabel{font-size:9px;}
+
+    main{padding-left:max(10px, env(safe-area-inset-left));padding-right:max(10px, env(safe-area-inset-right));}
+    .card{padding:14px;border-radius:16px;}
+    .col2{gap:12px;}
+
+    /* Rows people tap on (chores, list items, settings) get more room. */
+    .choreRow,.itemRow{padding:11px 0;}
+    .checkBox{width:32px;height:32px;border-radius:9px;font-size:17px;}
+    .routineStep .checkBox{width:26px;height:26px;}
+    .settRow{padding:12px 0;flex-wrap:wrap;}
+    .colorDot{width:16px;height:16px;}
+
+    /* Buttons: bigger hit area, and full-width where that reads more like
+       an app control than a squeezed inline link. */
+    .miniBtn{padding:9px 14px;font-size:13px;}
+    .addBtn{padding:11px 16px;font-size:14px;}
+    .redeemBtn{padding:9px 14px;font-size:13px;}
+    #addEventBtn{padding:10px 16px;}
+    .addLine{flex-wrap:wrap;}
+    .addLine button{padding:10px 16px;flex:1 1 auto;min-height:44px;}
+    .addLine input,.addLine textarea{flex:1 1 100%;min-height:44px;}
+
+    /* Calendar toolbar: let the month title take its own line so the
+       prev/next/view controls don't get squeezed down to slivers. */
+    .cal-toolbar{flex-direction:column;align-items:stretch;}
+    .cal-toolbar h2{margin:2px 0;font-size:16px;}
+    .cal-toolbar .navBtns{justify-content:space-between;}
+    .cal-toolbar .navBtns button{min-width:44px;min-height:44px;}
+    .viewSwitch{align-self:stretch;}
+    .viewSwitch button{flex:1;padding:9px 0;min-height:40px;}
+
+    /* Month grid stays a grid (Skylight-style), just with slightly more
+       readable cells than the tablet breakpoint used. */
+    .dayCell{min-height:60px;padding:4px;}
+    .dayNum{font-size:11px;}
+    .evChip{font-size:8.5px;padding:2px 4px;}
+
+    /* Horizontal-scroll sections: make it obviously swipeable, snap to
+       each card instead of stopping mid-column. */
+    .weekCols,.mealGrid{scroll-snap-type:x mandatory;}
+    .weekCol{flex:0 0 78vw;scroll-snap-align:start;}
+    .mealCol{flex:0 0 82vw;scroll-snap-align:start;}
+
+    /* Modal: full-width stacked action buttons are much easier to tap
+       accurately than three squeezed side-by-side buttons. */
+    .modal{width:96%;padding:16px 14px;border-radius:14px;}
+    .modalBtns{flex-direction:column-reverse;gap:8px;}
+    .modalBtns button{width:100%;padding:13px;font-size:15px;}
+    .btnDelete{margin-right:0;}
+
+    .photoThumb{width:60px;height:60px;}
   }
 </style>
 </head>
@@ -352,11 +435,10 @@ const DEFAULT_COLORS = ["#ff7a59","#4f9dde","#5cb85c","#f0ad4e","#9b59b6","#e754
 
 function defaultState(){
   return {
-    profiles:[
-      {id:"p1", name:"Alissa", color:"#ff7a59"},
-      {id:"p2", name:"Travis", color:"#4f9dde"},
-      {id:"p3", name:"Zayn", color:"#5cb85c"}
-    ],
+    // Starts empty on purpose — every household adds its own family
+    // members (Settings → Family Members) instead of inheriting a
+    // hardcoded sample roster.
+    profiles:[],
     feeds:[], // {id, label, url, profileId, proxy}
     events:[], // {id, title, start (ISO), end(ISO), allDay, profileId, location, notes, feedId?, repeat}
     chores:[], // {id, name, profileId, frequency: 'daily'|'weekly', days:[0-6] for weekly}
@@ -380,7 +462,11 @@ function defaultState(){
       proxyTemplate:"https://api.allorigins.win/raw?url={url}",
       syncMinutes:20,
       countdownTitle:"", countdownDate:"",
-      screensaverEnabled:false, screensaverIdleMinutes:5
+      screensaverEnabled:false, screensaverIdleMinutes:5,
+      // One-way meal import from Mealie (mealie.io) — a free, open-source,
+      // self-hostable meal planner with a real API. See syncMealsFromMealie().
+      mealieUrl:"", mealieToken:"", mealieUseProxy:false,
+      mealieLastSync:"", mealieLastError:""
     }
   };
 }
@@ -394,6 +480,7 @@ let currentUser = null;         // Firebase Auth user object once signed in
 let householdUnsub = null;      // unsubscribe fn for the live Firestore listener
 let applyingRemoteUpdate = false; // true while merging a remote change, to avoid re-echoing it back
 let appBooted = false;          // true once boot() has run at least once
+let householdDataLoaded = false; // true once the first Firestore snapshot for this household has been merged in
 
 function loadState(){
   try{
@@ -416,13 +503,23 @@ function saveState(){
   // so rapid edits don't spam the network) so other devices stay in sync.
   if(householdCode && !applyingRemoteUpdate && window.__firebase){
     clearTimeout(window.__remoteWriteTimer);
-    window.__remoteWriteTimer = setTimeout(()=>{
-      const { db, doc, setDoc } = window.__firebase;
-      setDoc(doc(db, "households", householdCode, "data", "state"), state)
-        .catch(e=> console.warn("Cloud sync failed, change is still saved locally:", e));
-    }, 800);
+    window.__remoteWriteTimer = setTimeout(pushStateToCloud, 800);
   }
 }
+function pushStateToCloud(){
+  clearTimeout(window.__remoteWriteTimer);
+  window.__remoteWriteTimer = null;
+  if(!householdCode || !window.__firebase) return;
+  const { db, doc, setDoc } = window.__firebase;
+  setDoc(doc(db, "households", householdCode, "data", "state"), state)
+    .catch(e=> console.warn("Cloud sync failed, change is still saved locally:", e));
+}
+// If the tablet/tab is closed or backgrounded right after an edit (e.g.
+// typing a meal then immediately switching tabs), make sure that edit
+// still reaches the cloud instead of waiting out the rest of the debounce.
+document.addEventListener("visibilitychange", ()=>{
+  if(document.visibilityState==="hidden" && window.__remoteWriteTimer) pushStateToCloud();
+});
 
 /* ---------------------------- date helpers ---------------------------- */
 function pad(n){ return n<10 ? "0"+n : ""+n; }
@@ -730,11 +827,17 @@ let calView="month"; // month|week|day
 let calCursor=new Date();
 let activeProfileFilter=new Set(); // empty = show all
 
+// Single entry point for switching tabs, used by the nav bar and by any
+// tappable element elsewhere (like the Home dashboard) that jumps to a
+// specific tab for more detail.
+function goToTab(tab){
+  currentTab=tab;
+  document.querySelectorAll("#mainNav button").forEach(b=>b.classList.toggle("active", b.dataset.tab===tab));
+  renderTab();
+}
 document.getElementById("mainNav").addEventListener("click", e=>{
   const btn=e.target.closest("button[data-tab]"); if(!btn) return;
-  currentTab=btn.dataset.tab;
-  document.querySelectorAll("#mainNav button").forEach(b=>b.classList.toggle("active", b===btn));
-  renderTab();
+  goToTab(btn.dataset.tab);
 });
 
 function renderTab(){
@@ -771,12 +874,17 @@ function homeHTML(){
   <div class="card" style="margin-bottom:18px">
     <h3>Today at a Glance</h3>
     <div class="col2" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
-      <div><div class="helpText" style="font-weight:700">📅 Events</div><div style="font-size:15px;margin-top:2px">${todayEvents.length} scheduled today</div></div>
-      <div><div class="helpText" style="font-weight:700">🍽 Meals</div><div style="font-size:15px;margin-top:2px">${mealBits.length? escapeHtml(mealBits.join(" · ")) : "Nothing planned yet"}</div></div>
-      <div><div class="helpText" style="font-weight:700">🛒 ${groceryList?escapeHtml(groceryList.name):'Grocery'}</div><div style="font-size:15px;margin-top:2px">${groceryRemaining} item${groceryRemaining===1?'':'s'} left</div></div>
+      <div class="homeLink" data-hometab="calendar"><div class="helpText" style="font-weight:700">📅 Events</div><div style="font-size:15px;margin-top:2px">${todayEvents.length} scheduled today <span class="homeLinkArrow">›</span></div></div>
+      <div class="homeLink" data-hometab="meals"><div class="helpText" style="font-weight:700">🍽 Meals</div><div style="font-size:15px;margin-top:2px">${mealBits.length? escapeHtml(mealBits.join(" · ")) : "Nothing planned yet"} <span class="homeLinkArrow">›</span></div></div>
+      <div class="homeLink" data-hometab="lists"><div class="helpText" style="font-weight:700">🛒 ${groceryList?escapeHtml(groceryList.name):'Grocery'}</div><div style="font-size:15px;margin-top:2px">${groceryRemaining} item${groceryRemaining===1?'':'s'} left <span class="homeLinkArrow">›</span></div></div>
     </div>
   </div>
   <div class="col2">
+  ${!state.profiles.length ? `
+    <div class="card">
+      <h3>👋 Add your family</h3>
+      <p class="helpText">This household doesn't have any family members yet. Head to <b>Settings → Family Members</b> to add everyone — each person gets their own schedule, chores, and star tally.</p>
+    </div>` : ''}
   ${state.profiles.map(p=>{
     const myEvents = todayEvents.filter(e=>e.profileId===p.id);
     const myChores = state.chores.filter(c=>c.profileId===p.id);
@@ -785,32 +893,36 @@ function homeHTML(){
     return `<div class="card">
       <h3><span class="titleGroup"><span class="iconBadge" style="background:${p.color}22;color:${p.color}">🧒</span><span style="color:${p.color}">${escapeHtml(p.name)}</span></span><span class="balancePill">⭐ ${starBalanceOf(p.id)}</span></h3>
 
-      <div class="helpText" style="font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px">Today's Schedule</div>
+      <div class="helpText homeLink" data-hometab="calendar" style="font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px">Today's Schedule <span class="homeLinkArrow">›</span></div>
       ${myEvents.length? myEvents.map(e=>`
-        <div class="itemRow">
+        <div class="itemRow homeLink" data-hometab="calendar">
           <div style="width:8px;height:8px;border-radius:50%;background:${p.color};flex-shrink:0"></div>
           <div class="rowText">${e.allDay?'All day':fmtTime(e.start)} — ${escapeHtml(e.title)}</div>
         </div>`).join("") : `<p style="color:var(--muted);font-size:13px">Nothing scheduled today.</p>`}
 
-      <div class="helpText" style="font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin:12px 0 4px">Chores <span style="float:right;color:var(--accent)">${choreCount.done}/${choreCount.total}</span></div>
+      <div class="helpText homeLink" data-hometab="chores" style="font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin:12px 0 4px">Chores <span style="float:right;color:var(--accent)">${choreCount.done}/${choreCount.total}</span></div>
       ${myChores.length? myChores.map(c=>{
         const done=!!state.choreLog[c.id+"_"+todayISO];
         return `<div class="choreRow"><div class="checkBox ${done?'done':''}" data-chore="${c.id}">${done?'✓':''}</div><div class="rowText ${done?'done':''}">${escapeHtml(c.name)}</div></div>`;
       }).join("") : `<p style="color:var(--muted);font-size:13px">No chores set up yet.</p>`}
 
       ${myRoutines.length? `
-      <div class="helpText" style="font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin:12px 0 4px">Routines</div>
+      <div class="helpText homeLink" data-hometab="chores" style="font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin:12px 0 4px">Routines <span class="homeLinkArrow">›</span></div>
       ${myRoutines.map(r=>{
         const prog=routineProgress(r, todayISO);
         const complete = prog.total>0 && prog.done===prog.total;
-        return `<div class="itemRow"><div class="rowText">${complete?'🎉 ':''}${escapeHtml(r.name)}</div><div style="font-size:12px;color:var(--muted)">${prog.done}/${prog.total}</div></div>`;
+        return `<div class="itemRow homeLink" data-hometab="chores"><div class="rowText">${complete?'🎉 ':''}${escapeHtml(r.name)}</div><div style="font-size:12px;color:var(--muted)">${prog.done}/${prog.total}</div></div>`;
       }).join("")}` : ""}
     </div>`;
   }).join("")}
   </div>`;
 }
 function attachHomeEvents(){
+  // Chore checkboxes toggle completion directly — that's the primary
+  // action here, so it does NOT navigate away (it's not inside a
+  // .homeLink). Everything else on Home jumps to its tab for more detail.
   document.querySelectorAll("[data-chore]").forEach(el=> el.onclick=()=> toggleChoreDone(el.dataset.chore));
+  document.querySelectorAll("[data-hometab]").forEach(el=> el.onclick=()=> goToTab(el.dataset.hometab));
 }
 
 /* ---------------------------- CALENDAR TAB ---------------------------- */
@@ -1049,6 +1161,9 @@ function routineProgress(routine, dateISO){
 }
 function choresHTML(){
   const todayISO = isoDate(new Date());
+  if(!state.profiles.length){
+    return `<div class="card"><h3>👋 Add your family first</h3><p class="helpText">Head to <b>Settings → Family Members</b> to add everyone, then come back here to set up chores for each person.</p></div>`;
+  }
   return `<div class="col2">` + state.profiles.map(p=>{
     const myChores = state.chores.filter(c=>c.profileId===p.id);
     const myRoutines = state.routines.filter(r=>r.profileId===p.id);
@@ -1064,9 +1179,17 @@ function choresHTML(){
       </div>
       ${myChores.map(c=>{
         const done = !!state.choreLog[c.id+"_"+todayISO];
+        // Older saved chores don't have a `recurring` field yet — treat
+        // that as "recurring" so nothing that used to show every day
+        // silently disappears after this update.
+        const isRecurring = c.recurring !== false;
         return `<div class="choreRow">
           <div class="checkBox ${done?'done':''}" data-chore="${c.id}">${done?'✓':''}</div>
-          <div class="rowText ${done?'done':''}">${escapeHtml(c.name)} <span style="color:var(--muted);font-size:11px">(${c.frequency})</span></div>
+          <input type="text" class="editableText rowText ${done?'done':''}" data-chorename="${c.id}" value="${escapeHtml(c.name)}">
+          <label class="recurToggle" title="Repeats every day, rather than being a one-time task">
+            <input type="checkbox" data-chorerecur="${c.id}" ${isRecurring?'checked':''}>
+            <span>${isRecurring?'🔁 Daily':'One-time'}</span>
+          </label>
           <button class="smallBtn" data-delchore="${c.id}">✕</button>
         </div>`;
       }).join("") || `<p style="color:var(--muted);font-size:13px">No chores yet.</p>`}
@@ -1135,11 +1258,36 @@ function attachChoreEvents(){
     state.chores = state.chores.filter(c=>c.id!==el.dataset.delchore);
     saveState(); renderTab();
   });
+
+  // Rename a chore in place — no more delete-and-re-add just to fix a typo
+  // or change what it's called.
+  function commitChoreName(inp){
+    const chore = state.chores.find(c=>c.id===inp.dataset.chorename); if(!chore) return;
+    const val = inp.value.trim();
+    chore.name = val || chore.name; // never save a blank name
+    inp.value = chore.name;
+    saveState();
+  }
+  document.querySelectorAll("[data-chorename]").forEach(inp=>{
+    inp.addEventListener("change", ()=> commitChoreName(inp));
+    inp.addEventListener("keydown", (e)=>{ if(e.key==="Enter"){ e.preventDefault(); commitChoreName(inp); inp.blur(); } });
+  });
+
+  // Recurring (repeats daily) vs. one-time — the "🔁 Daily" badge only
+  // shows for chores where this is checked.
+  document.querySelectorAll("[data-chorerecur]").forEach(cb=>{
+    cb.addEventListener("change", ()=>{
+      const chore = state.chores.find(c=>c.id===cb.dataset.chorerecur); if(!chore) return;
+      chore.recurring = cb.checked;
+      saveState(); renderTab();
+    });
+  });
+
   document.querySelectorAll("[data-addchorebtn]").forEach(btn=> btn.onclick=()=>{
     const pid=btn.dataset.addchorebtn;
     const input=document.querySelector(`[data-newchore="${pid}"]`);
     const name=input.value.trim(); if(!name) return;
-    state.chores.push({id:"c_"+Date.now(), name, profileId:pid, frequency:"daily"});
+    state.chores.push({id:"c_"+Date.now(), name, profileId:pid, frequency:"daily", recurring:true});
     saveState(); renderTab();
     const freshInput=document.querySelector(`[data-newchore="${pid}"]`);
     if(freshInput) freshInput.focus();
@@ -1304,6 +1452,95 @@ function attachMealEvents(){
   });
 }
 
+/* =========================================================================
+   MEALIE MEAL IMPORT (one-way)
+   Pulls this week's meal plan from a self-hosted Mealie (mealie.io)
+   instance — a free, open-source meal planner with a real REST API — into
+   state.meals. This never writes back to Mealie.
+
+   I confirmed the endpoint path (/api/households/mealplans), the bearer
+   token auth, and the general paginated response shape against Mealie's
+   own published docs. I could NOT test this against a live Mealie server
+   from here, so I can't guarantee every field name below matches your
+   instance's exact response — if a sync succeeds but meals come through
+   blank/wrong, open <your-mealie-url>/docs on your own server, find the
+   mealplans endpoint, and tell me what the real field names are so I can
+   adjust the mapping below.
+
+   CORS: your browser will only let this page talk to your Mealie server
+   directly if Mealie's reverse proxy allows this site's origin. If that's
+   not set up, this will fail with a generic network error — the "Allow
+   proxy fallback" setting routes the request through the same public CORS
+   proxy already used for calendar sync instead (see the warning in
+   Settings about what that means for your API token).
+   ========================================================================= */
+async function syncMealsFromMealie(){
+  const s = state.settings;
+  const statusEl = document.getElementById("mealieStatus");
+  const setStatus = (html)=>{ if(statusEl) statusEl.innerHTML = html; };
+
+  const base = (s.mealieUrl||"").trim().replace(/\/+$/,"");
+  const token = (s.mealieToken||"").trim();
+  if(!base || !token){
+    s.mealieLastError = "Enter both your Mealie server URL and API token first.";
+    s.mealieLastSync = "";
+    saveState();
+    setStatus(`<span style="color:#c0392b">${escapeHtml(s.mealieLastError)}</span>`);
+    return;
+  }
+
+  const startISO = isoDate(mealWeekStart), endISO = isoDate(addDays(mealWeekStart,6));
+  const filter = `date >= "${startISO}" AND date <= "${endISO}"`;
+  const directUrl = `${base}/api/households/mealplans?perPage=-1&orderBy=date&orderDirection=asc&queryFilter=${encodeURIComponent(filter)}`;
+  const fetchUrl = s.mealieUseProxy ? s.proxyTemplate.replace("{url}", encodeURIComponent(directUrl)) : directUrl;
+
+  setStatus("Syncing…");
+  try{
+    const res = await fetch(fetchUrl, { headers: { "Authorization": "Bearer " + token, "Accept": "application/json" } });
+    if(!res.ok) throw new Error("Mealie returned HTTP " + res.status);
+    const payload = await res.json();
+    const entries = Array.isArray(payload) ? payload : (payload.data || payload.items || []);
+
+    // Group this sync's entries by date/slot first, so re-syncing replaces
+    // what Mealie says for those days rather than piling up duplicates.
+    const fresh = {};
+    let count = 0;
+    for(const entry of entries){
+      const date = entry.date || entry.mealDate || entry.day;
+      if(!date) continue;
+      const entryType = String(entry.entryType || entry.entry_type || "dinner").toLowerCase();
+      const text = entry.title || entry.text
+        || (entry.recipe && (entry.recipe.name || entry.recipe.slug))
+        || "Planned meal";
+      const bucket = ["breakfast","lunch","dinner"].includes(entryType) ? entryType : "dinner";
+      const label = entryType==="side" ? `(side: ${text})` : text;
+      if(!fresh[date]) fresh[date] = {};
+      fresh[date][bucket] = fresh[date][bucket] ? fresh[date][bucket] + "; " + label : label;
+      count++;
+    }
+    for(const date in fresh){
+      if(!state.meals[date]) state.meals[date] = {breakfast:"",lunch:"",dinner:""};
+      Object.assign(state.meals[date], fresh[date]);
+    }
+
+    s.mealieLastSync = new Date().toISOString();
+    s.mealieLastError = "";
+    saveState();
+    // Update the status line in place (rather than a full renderTab()) so
+    // the transient "Synced N meals" message isn't immediately clobbered
+    // by re-rendering the settings card from state. The Meals tab reads
+    // state.meals fresh whenever the user actually navigates there.
+    setStatus(count ? `Synced ${count} meal${count===1?'':'s'} just now.` : "Synced, but Mealie had nothing planned for this week.");
+  }catch(e){
+    const corsHint = s.mealieUseProxy ? "" :
+      ` This is almost always a CORS restriction from your Mealie server — either allow this site's address in Mealie's reverse proxy, or turn on "Allow proxy fallback" above and try again.`;
+    s.mealieLastError = "Sync failed: " + (e&&e.message?e.message:String(e)) + corsHint;
+    s.mealieLastSync = "";
+    saveState();
+    setStatus(`<span style="color:#c0392b">${escapeHtml(s.mealieLastError)}</span>`);
+  }
+}
+
 /* ---------------------------- SETTINGS TAB ---------------------------- */
 function settingsHTML(){
   return `
@@ -1339,6 +1576,17 @@ function settingsHTML(){
       <div style="margin-top:10px"><button class="miniBtn" id="syncNowBtn">🔄 Sync now</button></div>
       <p class="helpText">CORS proxy in use: <input type="text" id="proxyTemplate" value="${escapeHtml(state.settings.proxyTemplate)}" style="width:100%;margin-top:4px;padding:6px;border:1px solid var(--line);border-radius:6px">
       If a feed keeps failing, try swapping in <code>https://corsproxy.io/?url={url}</code> instead. Free proxies aren't 100% guaranteed — ask Claude for a more durable option if this becomes unreliable.</p>
+    </div>
+
+    <div class="card">
+      <h3><span class="titleGroup"><span class="iconBadge" style="background:#fff0e6;color:#c0642a">🍲</span>Meal Planner Import</span><span class="newTag">New</span></h3>
+      <p class="helpText">Pulls the current week's plan from <a href="https://mealie.io" target="_blank" rel="noopener">Mealie</a> — a free, open-source, self-hosted meal planner — into the Meals tab. One-way: this reads from Mealie, it doesn't write back.</p>
+      <div class="field"><label>Mealie server URL</label><input type="url" id="mealieUrl" placeholder="https://mealie.yourdomain.com" value="${escapeHtml(state.settings.mealieUrl)}"></div>
+      <div class="field"><label>API token</label><input type="password" id="mealieToken" placeholder="Create one in Mealie: your profile → API Tokens" value="${escapeHtml(state.settings.mealieToken)}"></div>
+      <label class="settRow" style="border:none"><input type="checkbox" id="mealieUseProxy" ${state.settings.mealieUseProxy?'checked':''}> Allow proxy fallback if syncing fails</label>
+      <p class="helpText">Most self-hosted servers block direct requests from a different site (this one) unless you've set up CORS. If sync fails for that reason, either allow this site's address in Mealie's reverse proxy, <b>or</b> check the box above — that routes the request through the same public CORS proxy used for calendar sync, which means your Mealie token passes through that third-party proxy. Leave it off unless you're comfortable with that trade-off.</p>
+      <button class="miniBtn" id="mealieSyncBtn" style="margin-top:6px">🔄 Sync this week from Mealie</button>
+      <p class="helpText" id="mealieStatus">${state.settings.mealieLastError ? `<span style="color:#c0392b">${escapeHtml(state.settings.mealieLastError)}</span>` : (state.settings.mealieLastSync ? `Last synced ${new Date(state.settings.mealieLastSync).toLocaleString()}` : "Not synced yet.")}</p>
     </div>
 
     <div class="card">
@@ -1465,6 +1713,15 @@ function attachSettingsEvents(){
   if(proxyTemplate) proxyTemplate.addEventListener("change",()=>{
     state.settings.proxyTemplate = proxyTemplate.value; saveState();
   });
+
+  const mealieUrl=document.getElementById("mealieUrl");
+  if(mealieUrl) mealieUrl.addEventListener("change",()=>{ state.settings.mealieUrl=mealieUrl.value.trim(); saveState(); });
+  const mealieToken=document.getElementById("mealieToken");
+  if(mealieToken) mealieToken.addEventListener("change",()=>{ state.settings.mealieToken=mealieToken.value.trim(); saveState(); });
+  const mealieUseProxy=document.getElementById("mealieUseProxy");
+  if(mealieUseProxy) mealieUseProxy.addEventListener("change",()=>{ state.settings.mealieUseProxy=mealieUseProxy.checked; saveState(); });
+  const mealieSyncBtn=document.getElementById("mealieSyncBtn");
+  if(mealieSyncBtn) mealieSyncBtn.onclick=()=> syncMealsFromMealie();
 
   const setCityBtn=document.getElementById("setCityBtn");
   if(setCityBtn) setCityBtn.onclick=async ()=>{
@@ -1832,30 +2089,70 @@ function attachHouseholdListener(){
   const { db, doc, onSnapshot } = fb();
   if(householdUnsub){ householdUnsub(); householdUnsub=null; }
   householdUnsub = onSnapshot(doc(db,"households",householdCode,"data","state"), (snap)=>{
-    if(snap.exists()){
+    if(!snap.exists()){
+      if(!householdDataLoaded){ householdDataLoaded=true; startApp(); } // household doc has no state yet — boot with local state
+      return;
+    }
+    const remote=snap.data();
+    const merged=Object.assign(defaultState(), remote);
+    merged.settings=Object.assign(defaultState().settings, remote.settings||{});
+    // Photos are deliberately device-local (never written to Firestore),
+    // so keep whatever this device already has instead of wiping them out.
+    merged.photos = state.photos;
+
+    if(!householdDataLoaded){
+      householdDataLoaded=true;
       applyingRemoteUpdate=true;
-      const remote=snap.data();
-      const merged=Object.assign(defaultState(), remote);
-      merged.settings=Object.assign(defaultState().settings, remote.settings||{});
-      // Photos are deliberately device-local (never written to Firestore),
-      // so keep whatever this device already has instead of wiping them out.
-      merged.photos = state.photos;
       state=merged;
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-      if(appBooted) renderTab(); else startApp();
       applyingRemoteUpdate=false;
-    } else if(!appBooted){
-      // Household doc exists but has no state yet (shouldn't normally
-      // happen since createHousehold seeds it) — boot with local state.
-      startApp();
+      startApp(); // decides: boot straight in, or show the family-setup screen first
+      return;
+    }
+
+    // Firestore echoes every write back through this same listener —
+    // including the ones THIS device just made. Skip anything that's not
+    // an actual change so a normal edit doesn't trigger a needless re-render.
+    if(JSON.stringify(merged) === JSON.stringify(state)) return;
+
+    applyingRemoteUpdate=true;
+    state=merged;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    applyingRemoteUpdate=false;
+
+    if(!appBooted){
+      // Still on a blocking screen (e.g. the family-setup step) — don't
+      // silently boot the app out from under them. Their own Continue
+      // click (or a fresh startApp() call) is what advances past it.
+      return;
+    }
+
+    // Never yank a field out from under someone mid-edit (e.g. typing into
+    // a meal box, a chore name, a list item). If something's focused, keep
+    // the fresher data in memory/localStorage quietly and pick up the
+    // visual refresh as soon as they click away instead of right now.
+    const active=document.activeElement;
+    const main=document.getElementById("main");
+    const isEditing = active && ["INPUT","TEXTAREA","SELECT"].includes(active.tagName) && main && main.contains(active);
+    if(isEditing){
+      active.addEventListener("blur", ()=>{ renderTab(); }, { once:true });
+    }else{
+      renderTab();
     }
   }, (err)=>{
     console.warn("Household sync error:", err);
-    if(!appBooted) startApp(); // don't strand the user on a spinner forever
+    if(!householdDataLoaded){ householdDataLoaded=true; startApp(); } // don't strand the user on a spinner forever
   });
 }
 
 function startApp(){
+  // Every household needs at least one family member before the app
+  // itself is useful — walk them through adding one instead of dropping
+  // them into an empty dashboard.
+  if(!state.profiles.length){
+    renderFamilySetupScreen();
+    return;
+  }
   appBooted=true;
   hideAuthGate();
   boot();
@@ -1867,6 +2164,48 @@ if("serviceWorker" in navigator){
     navigator.serviceWorker.register("service-worker.js").catch(()=>{});
   });
 }
+}
+
+function renderFamilySetupScreen(){
+  setAuthError("");
+  showAuthGate(`
+    <p class="helpText">Add everyone in your household — each person gets their own schedule, chores, and star tally. You can add, rename, or remove people anytime later in Settings.</p>
+    <div id="familySetupList" style="margin:10px 0;">
+      ${state.profiles.map(p=>`
+        <div class="settRow">
+          <div class="colorDot" style="background:${p.color}"></div>
+          <div style="flex:1;text-align:left">${escapeHtml(p.name)}</div>
+          <button class="miniBtn danger" data-removesetupprofile="${p.id}">Remove</button>
+        </div>`).join("") || `<p class="helpText">No one added yet.</p>`}
+    </div>
+    <div class="addLine">
+      <input type="text" id="familySetupName" placeholder="Family member's name">
+      <button id="familySetupAddBtn">Add</button>
+    </div>
+    <button class="addBtn" id="familySetupContinueBtn" style="width:100%;margin-top:14px;" ${state.profiles.length?'':'disabled'}>Continue to My Family →</button>
+  `);
+  const nameInput=document.getElementById("familySetupName");
+  const addBtn=document.getElementById("familySetupAddBtn");
+  if(addBtn) addBtn.onclick=()=>{
+    const name=(nameInput.value||"").trim();
+    if(!name) return;
+    const color=DEFAULT_COLORS[state.profiles.length % DEFAULT_COLORS.length];
+    state.profiles.push({id:"p_"+Date.now(), name, color});
+    saveState();
+    renderFamilySetupScreen(); // refresh the list and enable Continue
+  };
+  document.querySelectorAll("[data-removesetupprofile]").forEach(btn=>{
+    btn.onclick=()=>{
+      state.profiles = state.profiles.filter(p=>p.id!==btn.dataset.removesetupprofile);
+      saveState();
+      renderFamilySetupScreen();
+    };
+  });
+  const continueBtn=document.getElementById("familySetupContinueBtn");
+  if(continueBtn) continueBtn.onclick=()=>{
+    if(!state.profiles.length) return;
+    startApp();
+  };
 }
 
 // The Firebase module script (above) dispatches this once it has either
@@ -1889,7 +2228,7 @@ if("serviceWorker" in navigator){
       if(!user){
         currentUser=null; householdCode=null;
         if(householdUnsub){ householdUnsub(); householdUnsub=null; }
-        appBooted=false;
+        appBooted=false; householdDataLoaded=false;
         renderSignInScreen();
         return;
       }
