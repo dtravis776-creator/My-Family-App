@@ -481,6 +481,7 @@ let householdUnsub = null;      // unsubscribe fn for the live Firestore listene
 let applyingRemoteUpdate = false; // true while merging a remote change, to avoid re-echoing it back
 let appBooted = false;          // true once boot() has run at least once
 let householdDataLoaded = false; // true once the first Firestore snapshot for this household has been merged in
+let pendingRemoteState = null;  // stashed incoming household data while renderSyncConflictScreen() waits on a choice
 
 function loadState(){
   try{
@@ -520,6 +521,32 @@ function pushStateToCloud(){
 document.addEventListener("visibilitychange", ()=>{
   if(document.visibilityState==="hidden" && window.__remoteWriteTimer) pushStateToCloud();
 });
+
+// Downloads whatever is currently in `state` as a JSON file — used by the
+// Settings backup button, and also offered as a safety net on the
+// sync-conflict screen before anything gets overwritten either direction.
+function downloadBackupFile(stateToExport, filename){
+  const blob=new Blob([JSON.stringify(stateToExport||state,null,2)],{type:"application/json"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob); a.download=filename||"kitchen-calendar-backup.json"; a.click();
+}
+
+// Does this device's current local state contain anything a person
+// actually entered, beyond the untouched defaults a brand-new install
+// starts with? Used to detect "this device has real, possibly-unsynced
+// data" before letting a cloud sync silently overwrite it.
+function localStateHasRealData(s){
+  s = s || state;
+  if(s.profiles && s.profiles.length) return true;
+  if(s.chores && s.chores.length) return true;
+  if(s.events && s.events.length) return true;
+  if(s.routines && s.routines.length) return true;
+  if(s.feeds && s.feeds.length) return true;
+  if(s.meals && Object.keys(s.meals).length) return true;
+  if(s.redemptions && s.redemptions.length) return true;
+  if(s.lists && s.lists.some(l=> (l.items&&l.items.length>0) || (l.name||"").toLowerCase()!=="grocery")) return true;
+  return false;
+}
 
 /* ---------------------------- date helpers ---------------------------- */
 function pad(n){ return n<10 ? "0"+n : ""+n; }
@@ -1763,11 +1790,7 @@ function attachSettingsEvents(){
   };
 
   const exportBtn=document.getElementById("exportBtn");
-  if(exportBtn) exportBtn.onclick=()=>{
-    const blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"});
-    const a=document.createElement("a");
-    a.href=URL.createObjectURL(blob); a.download="kitchen-calendar-backup.json"; a.click();
-  };
+  if(exportBtn) exportBtn.onclick=()=> downloadBackupFile(state, "kitchen-calendar-backup.json");
   const importBtn=document.getElementById("importBtn");
   const importFile=document.getElementById("importFile");
   if(importBtn) importBtn.onclick=()=> importFile.click();
@@ -2102,6 +2125,17 @@ function attachHouseholdListener(){
 
     if(!householdDataLoaded){
       householdDataLoaded=true;
+
+      // Safety net: if this device already has real, possibly-unsynced
+      // data that's different from what's in the household, DON'T
+      // silently overwrite it — that's exactly how data got lost before.
+      // Stop and let the person choose instead.
+      if(localStateHasRealData(state) && JSON.stringify(merged) !== JSON.stringify(state)){
+        pendingRemoteState = merged;
+        renderSyncConflictScreen();
+        return;
+      }
+
       applyingRemoteUpdate=true;
       state=merged;
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -2164,6 +2198,38 @@ if("serviceWorker" in navigator){
     navigator.serviceWorker.register("service-worker.js").catch(()=>{});
   });
 }
+}
+
+function renderSyncConflictScreen(){
+  setAuthError("");
+  showAuthGate(`
+    <h3 style="margin:-4px 0 10px">⚠️ This device has unsynced data</h3>
+    <p class="helpText">This device already has information saved (family members, chores, lists, etc.) that's different from what's currently in this household's shared calendar — most likely because it was added before this device connected to the household. To make sure nothing gets lost, choose how to proceed:</p>
+    <button class="miniBtn" id="syncConflictExportBtn" style="width:100%;margin:10px 0;">⬇ Export this device's data first (recommended)</button>
+    <button class="addBtn" id="syncConflictUseCloudBtn" style="width:100%;margin-bottom:4px;">Use the household's shared data</button>
+    <p class="helpText" style="margin:2px 0 14px;">This device's local-only data will be replaced with what everyone else already sees. Export first above if you're not sure.</p>
+    <button class="miniBtn" id="syncConflictKeepLocalBtn" style="width:100%;">Keep this device's data instead</button>
+    <p class="helpText" style="margin-top:6px;">Pushes what's on this device up to the household, replacing what's currently shared there. Only choose this if this device's data is the one that should win.</p>
+  `);
+  const exportBtn=document.getElementById("syncConflictExportBtn");
+  if(exportBtn) exportBtn.onclick=()=> downloadBackupFile(state, "this-device-backup-"+isoDate(new Date())+".json");
+  const useCloudBtn=document.getElementById("syncConflictUseCloudBtn");
+  if(useCloudBtn) useCloudBtn.onclick=()=>{
+    applyingRemoteUpdate=true;
+    state = pendingRemoteState;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    applyingRemoteUpdate=false;
+    pendingRemoteState=null;
+    startApp();
+  };
+  const keepLocalBtn=document.getElementById("syncConflictKeepLocalBtn");
+  if(keepLocalBtn) keepLocalBtn.onclick=()=>{
+    pendingRemoteState=null;
+    // Push this device's current state up right away, rather than waiting
+    // for the next edit to trigger a debounced save.
+    pushStateToCloud();
+    startApp();
+  };
 }
 
 function renderFamilySetupScreen(){
