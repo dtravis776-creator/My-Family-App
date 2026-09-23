@@ -48,19 +48,55 @@
     border-radius:14px;font-size:14px;font-weight:600;max-width:260px;text-align:right;}
 
   /* ---------- NAV ---------- */
+  /* The nav is a floating popover now (opened via the round FAB button,
+     bottom-right) instead of a bar permanently taking up screen space.
+     Base rules below are harmless leftovers from the old bar layout; the
+     #mainNav-specific rules further down (higher specificity: id beats
+     element) are what actually apply. Kept both instead of deleting the
+     base rules so nothing else that happens to say "nav button" breaks. */
   nav{display:flex;background:var(--card);border-bottom:1px solid var(--line);flex-shrink:0;}
   nav button{flex:1;padding:14px 0;font-size:16px;font-weight:600;color:var(--muted);
     border-bottom:3px solid transparent;display:flex;flex-direction:column;align-items:center;gap:2px;}
   nav button.active{color:var(--accent);border-bottom-color:var(--accent);}
   nav .navIcon{font-size:18px;line-height:1;}
   nav .navLabel{font-size:12px;line-height:1;}
+
+  nav#mainNav{
+    position:fixed; display:none; flex-direction:column;
+    right:max(20px, env(safe-area-inset-right));
+    bottom:calc(84px + env(safe-area-inset-bottom));
+    background:var(--card); border:1px solid var(--line); border-bottom:1px solid var(--line);
+    border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,.25);
+    padding:6px; gap:2px; min-width:190px; z-index:160;
+  }
+  nav#mainNav.open{display:flex;}
+  nav#mainNav button{flex:none; flex-direction:row; justify-content:flex-start; align-items:center;
+    gap:10px; padding:11px 14px; min-height:44px; border-bottom:none; border-radius:10px; width:100%;}
+  nav#mainNav button.active{background:var(--accent); color:#fff;}
+  nav#mainNav .navIcon{font-size:18px;}
+  nav#mainNav .navLabel{font-size:14px;}
+
+  #navBackdrop{position:fixed; inset:0; background:transparent; z-index:150; display:none;}
+  #navBackdrop.open{display:block;}
+
+  #navFab{
+    position:fixed; z-index:170;
+    right:max(20px, env(safe-area-inset-right));
+    bottom:max(20px, env(safe-area-inset-bottom));
+    width:56px; height:56px; border-radius:50%;
+    background:var(--accent); color:#fff; font-size:24px;
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:0 6px 18px rgba(0,0,0,.3);
+    transition:transform .15s ease;
+  }
+  #navFab.open{transform:rotate(45deg);}
   .iconBadge{width:38px;height:38px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;
     font-size:18px;flex-shrink:0;}
   .newTag{background:var(--accent);color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;
     text-transform:uppercase;letter-spacing:.5px;}
 
   main{flex:1;overflow:auto;-webkit-overflow-scrolling:touch;
-    padding:16px max(22px, env(safe-area-inset-right)) max(22px, env(safe-area-inset-bottom)) max(22px, env(safe-area-inset-left));}
+    padding:16px max(22px, env(safe-area-inset-right)) max(96px, calc(80px + env(safe-area-inset-bottom))) max(22px, env(safe-area-inset-left));}
 
   /* ---------- CALENDAR TOOLBAR ---------- */
   .cal-toolbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:10px;}
@@ -122,6 +158,9 @@
   .smallBtn{font-size:13px;color:var(--muted);padding:4px 8px;}
   .recurToggle{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted);white-space:nowrap;flex-shrink:0;cursor:pointer;}
   .recurToggle input{margin:0;}
+  .choreReschedule{width:100%;display:flex;align-items:center;gap:8px;margin-top:2px;padding-left:36px;flex-wrap:wrap;}
+  .choreReschedule .miniBtn{padding:5px 10px;font-size:12px;}
+  .choreReschedule input[type="date"]{max-width:150px;padding:5px 8px;border:1px solid var(--line);border-radius:8px;font-size:12px;}
 
   /* ---------- HOME: tappable sections that jump to the relevant tab ---------- */
   .homeLink{cursor:pointer;border-radius:10px;margin:0 -8px;padding:2px 8px;transition:background .12s;}
@@ -366,6 +405,9 @@
     <button data-tab="meals"><span class="navIcon">🍽</span><span class="navLabel">Meals</span></button>
     <button data-tab="settings"><span class="navIcon">⚙️</span><span class="navLabel">Settings</span></button>
   </nav>
+
+  <div id="navBackdrop"></div>
+  <button id="navFab" aria-label="Open menu" title="Menu">☰</button>
 
   <main id="main"></main>
 </div>
@@ -895,12 +937,28 @@ let calView="month"; // month|week|day
 let calCursor=new Date();
 let activeProfileFilter=new Set(); // empty = show all
 
-// Single entry point for switching tabs, used by the nav bar and by any
+// The nav is a floating popover: tap the round button (bottom-right) to
+// reveal it, tap a backdrop tap or a menu choice to close it again.
+function closeNavMenu(){
+  document.getElementById("mainNav").classList.remove("open");
+  document.getElementById("navFab").classList.remove("open");
+  document.getElementById("navBackdrop").classList.remove("open");
+}
+function toggleNavMenu(){
+  const open = document.getElementById("mainNav").classList.toggle("open");
+  document.getElementById("navFab").classList.toggle("open", open);
+  document.getElementById("navBackdrop").classList.toggle("open", open);
+}
+document.getElementById("navFab").addEventListener("click", toggleNavMenu);
+document.getElementById("navBackdrop").addEventListener("click", closeNavMenu);
+
+// Single entry point for switching tabs, used by the nav menu and by any
 // tappable element elsewhere (like the Home dashboard) that jumps to a
 // specific tab for more detail.
 function goToTab(tab){
   currentTab=tab;
   document.querySelectorAll("#mainNav button").forEach(b=>b.classList.toggle("active", b.dataset.tab===tab));
+  closeNavMenu();
   renderTab();
 }
 document.getElementById("mainNav").addEventListener("click", e=>{
@@ -1274,6 +1332,11 @@ function choresHTML(){
             <span>${isRecurring?'🔁 Daily':'One-time'}</span>
           </label>
           <button class="smallBtn" data-delchore="${c.id}">✕</button>
+          ${(!isRecurring && !done) ? `
+          <div class="choreReschedule">
+            <button class="miniBtn" data-pushtomorrow="${c.id}|${viewDate}">➜ Push to tomorrow</button>
+            <input type="date" data-choremove="${c.id}" value="${c.date||viewDate}" title="Move this task to a specific day">
+          </div>` : ''}
         </div>`;
       }).join("") || `<p style="color:var(--muted);font-size:13px">No chores for ${viewDate===todayISO?'today':'this day'} yet.</p>`}
       <div class="addLine">
@@ -1379,6 +1442,25 @@ function attachChoreEvents(){
       const chore = state.chores.find(c=>c.id===cb.dataset.chorerecur); if(!chore) return;
       chore.recurring = cb.checked;
       if(!cb.checked && !chore.date) chore.date = selectedChoreDate || isoDate(new Date());
+      saveState(); renderTab();
+    });
+  });
+
+  // Quick "push to tomorrow" for an undone one-time chore -- the common
+  // case (didn't get to it today, move it to the next day) in one tap
+  // instead of deleting and re-adding it.
+  document.querySelectorAll("[data-pushtomorrow]").forEach(btn=> btn.onclick=()=>{
+    const [choreId, fromDate] = btn.dataset.pushtomorrow.split("|");
+    const chore = state.chores.find(c=>c.id===choreId); if(!chore) return;
+    chore.date = isoDate(addDays(new Date(fromDate+"T00:00:00"), 1));
+    saveState(); renderTab();
+  });
+  // Move a one-time chore to any specific day via the date picker next to it.
+  document.querySelectorAll("[data-choremove]").forEach(inp=>{
+    inp.addEventListener("change", ()=>{
+      const chore = state.chores.find(c=>c.id===inp.dataset.choremove); if(!chore) return;
+      if(!inp.value) return;
+      chore.date = inp.value;
       saveState(); renderTab();
     });
   });
