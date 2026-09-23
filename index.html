@@ -173,9 +173,11 @@
   /* ---------- CHORE COUNTERS / WEEKLY STRIP ---------- */
   .todayCounter{font-size:13px;color:var(--accent);font-weight:700;background:#e3f2ef;padding:3px 12px;border-radius:20px;white-space:nowrap;}
   .dayStrip{display:flex;gap:6px;margin:12px 0 6px;}
-  .dayStripItem{flex:1;text-align:center;background:#f3f9f5;border-radius:10px;padding:6px 2px;font-size:10px;color:var(--muted);font-weight:600;}
+  .dayStripItem{flex:1;text-align:center;background:#f3f9f5;border-radius:10px;padding:6px 2px;font-size:10px;color:var(--muted);font-weight:600;cursor:pointer;user-select:none;}
   .dayStripItem.today{background:var(--accent);color:#fff;}
+  .dayStripItem.selected{outline:2px solid var(--accent);outline-offset:1px;}
   .dayStripItem .dsCount{display:block;font-weight:700;font-size:13px;margin-top:2px;}
+  .addLine input[type="date"]{flex:0 0 auto;max-width:150px;}
 
   /* ---------- ROUTINES ---------- */
   .routinesSection{margin-top:14px;padding-top:14px;border-top:1px dashed var(--line);}
@@ -482,7 +484,24 @@ let applyingRemoteUpdate = false; // true while merging a remote change, to avoi
 let appBooted = false;          // true once boot() has run at least once
 let householdDataLoaded = false; // true once the first Firestore snapshot for this household has been merged in
 let pendingRemoteState = null;  // stashed incoming household data while renderSyncConflictScreen() waits on a choice
+let selectedChoreDate = null;   // which day's chores the Chores tab is showing; null means "today" (tap a day in the strip to change it)
 
+// One-time (non-recurring) chores used to have no concept of which day
+// they belonged to, so they showed up under every day of the week forever
+// -- functionally identical to a recurring chore except for the badge text.
+// This backfills a `date` onto any one-time chore that doesn't have one yet
+// so it settles onto a single real day instead. Purely additive: nothing is
+// removed or renamed, chores keep their id/name/history, this only fills in
+// a missing field. Safe to call repeatedly (a no-op once every chore has a
+// date).
+function migrateChoreDates(s){
+  if(!s || !Array.isArray(s.chores)) return s;
+  const todayISO = isoDate(new Date());
+  s.chores.forEach(c=>{
+    if(c.recurring === false && !c.date) c.date = todayISO;
+  });
+  return s;
+}
 function loadState(){
   try{
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -493,6 +512,7 @@ function loadState(){
       // default keys (like screensaverEnabled) that an older save doesn't
       // have yet. Backfill those explicitly instead.
       merged.settings = Object.assign(defaultState().settings, saved.settings||{});
+      migrateChoreDates(merged);
       return merged;
     }
   }catch(e){ console.warn("Could not load saved data, starting fresh.", e); }
@@ -690,11 +710,32 @@ function parseICS(text, feedId, profileId){
 }
 
 async function syncFeed(feed){
-  const proxied = state.settings.proxyTemplate.replace("{url}", encodeURIComponent(feed.url));
-  const res = await fetch(proxied);
-  if(!res.ok) throw new Error("HTTP "+res.status);
-  const text = await res.text();
-  return parseICS(text, feed.id, feed.profileId);
+  // Try the user's configured proxy first, then fall back to a second public
+  // proxy automatically. This matters because some networks' content
+  // filtering (parental controls, school/corporate firewalls) block known
+  // proxy domains like allorigins.win outright -- but some of those filters
+  // respond with their own HTTP 200 "blocked" page instead of a network
+  // error, so a plain fetch() would otherwise look like a "successful" sync
+  // that silently returns zero events. To catch that, we also verify the
+  // response actually looks like a calendar file before accepting it.
+  const FALLBACK_PROXY = "https://corsproxy.io/?url={url}";
+  const templates = [state.settings.proxyTemplate, FALLBACK_PROXY].filter((v,i,a)=> v && a.indexOf(v)===i);
+  let lastErr = null;
+  for(const template of templates){
+    try{
+      const proxied = template.replace("{url}", encodeURIComponent(feed.url));
+      const res = await fetch(proxied);
+      if(!res.ok) throw new Error("HTTP "+res.status);
+      const text = await res.text();
+      if(!text.includes("BEGIN:VCALENDAR")){
+        throw new Error("Got a response, but it wasn't a real calendar file -- likely blocked by network content filtering, a sign-in wall, or the link isn't a direct ICS/webcal link.");
+      }
+      return parseICS(text, feed.id, feed.profileId);
+    }catch(e){
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error("Sync failed");
 }
 async function syncAllFeeds(showAlert){
   let anyError=null;
@@ -914,7 +955,7 @@ function homeHTML(){
     </div>` : ''}
   ${state.profiles.map(p=>{
     const myEvents = todayEvents.filter(e=>e.profileId===p.id);
-    const myChores = state.chores.filter(c=>c.profileId===p.id);
+    const myChores = choresForDay(p.id, todayISO);
     const myRoutines = state.routines.filter(r=>r.profileId===p.id);
     const choreCount = choresDoneToday(p.id);
     return `<div class="card">
@@ -1163,22 +1204,34 @@ function starCount(profileId){
   return count;
 }
 function starBalanceOf(profileId){ return state.starBalance[profileId]||0; }
+// Which of a person's chores actually apply on a given day: recurring ones
+// apply every day; one-time ones only apply on the specific day they're
+// scheduled for (falling back to today if somehow still missing a date --
+// see migrateChoreDates, which normally backfills this on load).
+function choresForDay(profileId, dateISO){
+  const todayISO = isoDate(new Date());
+  return state.chores.filter(c=>{
+    if(c.profileId!==profileId) return false;
+    if(c.recurring !== false) return true; // recurring (or legacy/unset) -> every day
+    return (c.date || todayISO) === dateISO;
+  });
+}
 function choresDoneToday(profileId){
   const todayISO = isoDate(new Date());
-  const myChores = state.chores.filter(c=>c.profileId===profileId);
+  const myChores = choresForDay(profileId, todayISO);
   const done = myChores.filter(c=>state.choreLog[c.id+"_"+todayISO]).length;
   return {done, total: myChores.length};
 }
 function weeklyChoreStrip(profileId){
   const ws=startOfWeek(new Date());
-  const myChores = state.chores.filter(c=>c.profileId===profileId);
   const today=new Date();
   const out=[];
   for(let i=0;i<7;i++){
     const d=addDays(ws,i);
     const dISO=isoDate(d);
-    const done = myChores.filter(c=>state.choreLog[c.id+"_"+dISO]).length;
-    out.push({label:DOW[d.getDay()], done, total:myChores.length, isToday:sameDay(d,today)});
+    const dayChores = choresForDay(profileId, dISO);
+    const done = dayChores.filter(c=>state.choreLog[c.id+"_"+dISO]).length;
+    out.push({label:DOW[d.getDay()], done, total:dayChores.length, isToday:sameDay(d,today), dateISO:dISO});
   }
   return out;
 }
@@ -1188,11 +1241,13 @@ function routineProgress(routine, dateISO){
 }
 function choresHTML(){
   const todayISO = isoDate(new Date());
+  const viewDate = selectedChoreDate || todayISO;
+  const viewLabel = viewDate===todayISO ? "Today" : new Date(viewDate+"T00:00:00").toLocaleDateString(undefined,{weekday:'long', month:'short', day:'numeric'});
   if(!state.profiles.length){
     return `<div class="card"><h3>👋 Add your family first</h3><p class="helpText">Head to <b>Settings → Family Members</b> to add everyone, then come back here to set up chores for each person.</p></div>`;
   }
   return `<div class="col2">` + state.profiles.map(p=>{
-    const myChores = state.chores.filter(c=>c.profileId===p.id);
+    const myChores = choresForDay(p.id, viewDate);
     const myRoutines = state.routines.filter(r=>r.profileId===p.id);
     const myRedemptions = state.redemptions.filter(r=>r.profileId===p.id).slice(-2).reverse();
     const todayCount = choresDoneToday(p.id);
@@ -1202,16 +1257,17 @@ function choresHTML(){
         <span style="display:flex;gap:6px;align-items:center"><span class="todayCounter">${todayCount.done}/${todayCount.total} today</span><span class="starTally">⭐ ${starCount(p.id)} this week</span></span>
       </h3>
       <div class="dayStrip">
-        ${strip.map(d=>`<div class="dayStripItem ${d.isToday?'today':''}">${d.label}<span class="dsCount">${d.done}/${d.total}</span></div>`).join("")}
+        ${strip.map(d=>`<div class="dayStripItem ${d.isToday?'today':''} ${d.dateISO===viewDate?'selected':''}" data-choreday="${d.dateISO}" title="Tap to see/add chores for this day">${d.label}<span class="dsCount">${d.done}/${d.total}</span></div>`).join("")}
       </div>
+      <p class="helpText" style="margin:6px 0 8px">Showing: <b>${viewLabel}</b>${viewDate!==todayISO?` · <a href="#" data-backtotoday="1" style="color:var(--accent)">back to today</a>`:''}</p>
       ${myChores.map(c=>{
-        const done = !!state.choreLog[c.id+"_"+todayISO];
+        const done = !!state.choreLog[c.id+"_"+viewDate];
         // Older saved chores don't have a `recurring` field yet — treat
         // that as "recurring" so nothing that used to show every day
         // silently disappears after this update.
         const isRecurring = c.recurring !== false;
         return `<div class="choreRow">
-          <div class="checkBox ${done?'done':''}" data-chore="${c.id}">${done?'✓':''}</div>
+          <div class="checkBox ${done?'done':''}" data-chore="${c.id}" data-chorewhen="${viewDate}">${done?'✓':''}</div>
           <input type="text" class="editableText rowText ${done?'done':''}" data-chorename="${c.id}" value="${escapeHtml(c.name)}">
           <label class="recurToggle" title="Repeats every day, rather than being a one-time task">
             <input type="checkbox" data-chorerecur="${c.id}" ${isRecurring?'checked':''}>
@@ -1219,9 +1275,10 @@ function choresHTML(){
           </label>
           <button class="smallBtn" data-delchore="${c.id}">✕</button>
         </div>`;
-      }).join("") || `<p style="color:var(--muted);font-size:13px">No chores yet.</p>`}
+      }).join("") || `<p style="color:var(--muted);font-size:13px">No chores for ${viewDate===todayISO?'today':'this day'} yet.</p>`}
       <div class="addLine">
         <input type="text" placeholder="New chore..." data-newchore="${p.id}">
+        <input type="date" data-newchoredate="${p.id}" value="${viewDate}" title="Which day is this for? (only matters for one-time chores -- daily chores show every day regardless)">
         <button data-addchorebtn="${p.id}">Add</button>
       </div>
 
@@ -1268,9 +1325,9 @@ function choresHTML(){
     </div>`;
   }).join("") + `</div>`;
 }
-function toggleChoreDone(id){
-  const todayISO=isoDate(new Date());
-  const key=id+"_"+todayISO;
+function toggleChoreDone(id, dateISO){
+  const dISO = dateISO || isoDate(new Date());
+  const key=id+"_"+dISO;
   const chore = state.chores.find(c=>c.id===id);
   if(!chore) return;
   const wasDone = !!state.choreLog[key];
@@ -1280,10 +1337,22 @@ function toggleChoreDone(id){
   saveState(); renderTab();
 }
 function attachChoreEvents(){
-  document.querySelectorAll("[data-chore]").forEach(el=> el.onclick=()=> toggleChoreDone(el.dataset.chore));
+  document.querySelectorAll("[data-chore]").forEach(el=> el.onclick=()=> toggleChoreDone(el.dataset.chore, el.dataset.chorewhen));
   document.querySelectorAll("[data-delchore]").forEach(el=> el.onclick=()=>{
     state.chores = state.chores.filter(c=>c.id!==el.dataset.delchore);
     saveState(); renderTab();
+  });
+
+  // Tap a day in the weekly strip to browse (and add) that day's chores
+  // instead of always being stuck looking at today.
+  document.querySelectorAll("[data-choreday]").forEach(el=> el.onclick=()=>{
+    selectedChoreDate = el.dataset.choreday;
+    renderTab();
+  });
+  document.querySelectorAll("[data-backtotoday]").forEach(el=> el.onclick=(e)=>{
+    e.preventDefault();
+    selectedChoreDate = null;
+    renderTab();
   });
 
   // Rename a chore in place — no more delete-and-re-add just to fix a typo
@@ -1301,11 +1370,15 @@ function attachChoreEvents(){
   });
 
   // Recurring (repeats daily) vs. one-time — the "🔁 Daily" badge only
-  // shows for chores where this is checked.
+  // shows for chores where this is checked. Switching a chore to one-time
+  // needs a day to "land" on: use whichever day is currently being viewed
+  // (falls back to today) rather than leaving it dateless, which is what
+  // used to make one-time chores show up on every day forever.
   document.querySelectorAll("[data-chorerecur]").forEach(cb=>{
     cb.addEventListener("change", ()=>{
       const chore = state.chores.find(c=>c.id===cb.dataset.chorerecur); if(!chore) return;
       chore.recurring = cb.checked;
+      if(!cb.checked && !chore.date) chore.date = selectedChoreDate || isoDate(new Date());
       saveState(); renderTab();
     });
   });
@@ -1313,8 +1386,10 @@ function attachChoreEvents(){
   document.querySelectorAll("[data-addchorebtn]").forEach(btn=> btn.onclick=()=>{
     const pid=btn.dataset.addchorebtn;
     const input=document.querySelector(`[data-newchore="${pid}"]`);
+    const dateInput=document.querySelector(`[data-newchoredate="${pid}"]`);
     const name=input.value.trim(); if(!name) return;
-    state.chores.push({id:"c_"+Date.now(), name, profileId:pid, frequency:"daily", recurring:true});
+    const chosenDate = (dateInput && dateInput.value) || isoDate(new Date());
+    state.chores.push({id:"c_"+Date.now(), name, profileId:pid, frequency:"daily", recurring:true, date:chosenDate});
     saveState(); renderTab();
     const freshInput=document.querySelector(`[data-newchore="${pid}"]`);
     if(freshInput) freshInput.focus();
@@ -2122,6 +2197,7 @@ function attachHouseholdListener(){
     // Photos are deliberately device-local (never written to Firestore),
     // so keep whatever this device already has instead of wiping them out.
     merged.photos = state.photos;
+    migrateChoreDates(merged);
 
     if(!householdDataLoaded){
       householdDataLoaded=true;
