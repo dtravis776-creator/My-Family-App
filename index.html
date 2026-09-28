@@ -156,6 +156,9 @@
   input.editableText:focus{outline:none;border-color:var(--accent);background:#fff;}
   input.editableTitle{flex:1;font-size:18px;font-weight:700;font-family:var(--serif);min-width:0;}
   .smallBtn{font-size:13px;color:var(--muted);padding:4px 8px;}
+  .itemMoveBtns{display:flex;flex-direction:column;flex-shrink:0;}
+  .itemMoveBtns button{font-size:11px;line-height:1;padding:3px 6px;color:var(--muted);}
+  .itemMoveBtns button:disabled{opacity:.25;cursor:default;}
   .recurToggle{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted);white-space:nowrap;flex-shrink:0;cursor:pointer;}
   .recurToggle input{margin:0;}
   .choreReschedule{width:100%;display:flex;align-items:center;gap:8px;margin-top:2px;padding-left:36px;flex-wrap:wrap;}
@@ -1332,16 +1335,21 @@ function choresHTML(){
             <span>${isRecurring?'🔁 Daily':'One-time'}</span>
           </label>
           <button class="smallBtn" data-delchore="${c.id}">✕</button>
-          ${(!isRecurring && !done) ? `
+          ${!isRecurring ? `
           <div class="choreReschedule">
-            <button class="miniBtn" data-pushtomorrow="${c.id}|${viewDate}">➜ Push to tomorrow</button>
-            <input type="date" data-choremove="${c.id}" value="${c.date||viewDate}" title="Move this task to a specific day">
+            <span style="font-size:12px;color:var(--muted)">Due:</span>
+            <input type="date" data-choremove="${c.id}" value="${c.date||viewDate}" title="Editable due date -- move this task to any day">
+            ${!done ? `<button class="miniBtn" data-pushtomorrow="${c.id}|${viewDate}">➜ Tomorrow</button>` : ''}
           </div>` : ''}
         </div>`;
       }).join("") || `<p style="color:var(--muted);font-size:13px">No chores for ${viewDate===todayISO?'today':'this day'} yet.</p>`}
-      <div class="addLine">
+      <div class="addLine" style="flex-wrap:wrap">
         <input type="text" placeholder="New chore..." data-newchore="${p.id}">
-        <input type="date" data-newchoredate="${p.id}" value="${viewDate}" title="Which day is this for? (only matters for one-time chores -- daily chores show every day regardless)">
+        <label class="recurToggle" title="Repeats every day, rather than being a one-time task">
+          <input type="checkbox" data-newchorerecur="${p.id}" checked>
+          <span data-newchorerecurlabel="${p.id}">🔁 Daily</span>
+        </label>
+        <input type="date" data-newchoredate="${p.id}" value="${viewDate}" title="Due date (used when 'Daily' is unchecked, i.e. a one-time task)">
         <button data-addchorebtn="${p.id}">Add</button>
       </div>
 
@@ -1465,13 +1473,24 @@ function attachChoreEvents(){
     });
   });
 
+  // Toggle the "🔁 Daily" / "One-time" label on the add-chore row live as
+  // the checkbox changes, same as the per-chore toggle already does.
+  document.querySelectorAll("[data-newchorerecur]").forEach(cb=>{
+    cb.addEventListener("change", ()=>{
+      const label=document.querySelector(`[data-newchorerecurlabel="${cb.dataset.newchorerecur}"]`);
+      if(label) label.textContent = cb.checked ? "🔁 Daily" : "One-time";
+    });
+  });
+
   document.querySelectorAll("[data-addchorebtn]").forEach(btn=> btn.onclick=()=>{
     const pid=btn.dataset.addchorebtn;
     const input=document.querySelector(`[data-newchore="${pid}"]`);
     const dateInput=document.querySelector(`[data-newchoredate="${pid}"]`);
+    const recurCheckbox=document.querySelector(`[data-newchorerecur="${pid}"]`);
     const name=input.value.trim(); if(!name) return;
     const chosenDate = (dateInput && dateInput.value) || isoDate(new Date());
-    state.chores.push({id:"c_"+Date.now(), name, profileId:pid, frequency:"daily", recurring:true, date:chosenDate});
+    const recurring = recurCheckbox ? recurCheckbox.checked : true;
+    state.chores.push({id:"c_"+Date.now(), name, profileId:pid, frequency:"daily", recurring, date:chosenDate});
     saveState(); renderTab();
     const freshInput=document.querySelector(`[data-newchore="${pid}"]`);
     if(freshInput) freshInput.focus();
@@ -1527,10 +1546,14 @@ function listsHTML(){
   return `<div class="col2">` + state.lists.map(l=>`
     <div class="card">
       <h3><input type="text" class="editableText editableTitle" style="color:${l.color}" data-listname="${l.id}" value="${escapeHtml(l.name)}"><button class="smallBtn" data-dellist="${l.id}">Delete list</button></h3>
-      ${l.items.map(it=>`
+      ${l.items.map((it,idx)=>`
         <div class="itemRow">
           <div class="checkBox ${it.done?'done':''}" data-item="${l.id}|${it.id}">${it.done?'✓':''}</div>
           <input type="text" class="editableText rowText ${it.done?'done':''}" data-itemtext="${l.id}|${it.id}" value="${escapeHtml(it.text)}">
+          <div class="itemMoveBtns">
+            <button data-moveitem="${l.id}|${it.id}|up" ${idx===0?'disabled':''} title="Move up">▲</button>
+            <button data-moveitem="${l.id}|${it.id}|down" ${idx===l.items.length-1?'disabled':''} title="Move down">▼</button>
+          </div>
           <button class="smallBtn" data-delitem="${l.id}|${it.id}">✕</button>
         </div>`).join("") || `<p style="color:var(--muted);font-size:13px">Empty.</p>`}
       <div class="addLine">
@@ -1553,6 +1576,16 @@ function attachListEvents(){
   document.querySelectorAll("[data-delitem]").forEach(el=> el.onclick=()=>{
     const [lid,iid]=el.dataset.delitem.split("|");
     const list=state.lists.find(l=>l.id===lid); list.items=list.items.filter(i=>i.id!==iid);
+    saveState(); renderTab();
+  });
+  // Reorder items within a list by swapping with the neighbor above/below.
+  document.querySelectorAll("[data-moveitem]").forEach(el=> el.onclick=()=>{
+    const [lid,iid,dir]=el.dataset.moveitem.split("|");
+    const list=state.lists.find(l=>l.id===lid); if(!list) return;
+    const idx=list.items.findIndex(i=>i.id===iid); if(idx<0) return;
+    const swapWith = dir==="up" ? idx-1 : idx+1;
+    if(swapWith<0 || swapWith>=list.items.length) return;
+    [list.items[idx], list.items[swapWith]] = [list.items[swapWith], list.items[idx]];
     saveState(); renderTab();
   });
   document.querySelectorAll("[data-dellist]").forEach(el=> el.onclick=()=>{
