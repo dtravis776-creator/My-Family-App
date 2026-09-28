@@ -168,7 +168,9 @@
   /* ---------- BUDGET ---------- */
   .budgetCatRow{padding:10px 0;border-bottom:1px solid var(--line);}
   .budgetCatRow:last-of-type{border-bottom:none;}
-  .budgetCatHead{display:flex;align-items:center;gap:8px;margin-bottom:6px;}
+  .budgetCatHead{display:flex;align-items:center;gap:8px;margin-bottom:4px;}
+  .budgetCatHead .rowText{min-width:0;}
+  .budgetCatAmounts{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;}
   .budgetLimitInput{max-width:90px;padding:5px 8px;border:1px solid var(--line);border-radius:8px;font-size:13px;}
   .budgetBarTrack{width:100%;height:8px;background:var(--line);border-radius:6px;overflow:hidden;}
   .budgetBarFill{height:100%;border-radius:6px;transition:width .2s ease;}
@@ -1806,9 +1808,11 @@ function budgetHTML(){
     catsHtml += `<div class="budgetCatRow">
       <div class="budgetCatHead">
         <input type="text" class="editableText rowText" data-catname="${c.id}" value="${escapeHtml(c.name)}">
+        <button class="smallBtn" data-delcat="${c.id}">✕</button>
+      </div>
+      <div class="budgetCatAmounts">
         <span class="helpText">Budget $</span><input type="number" step="0.01" min="0" class="budgetLimitInput" data-catlimit="${c.id}" value="${limit}" title="Monthly budget for this category">
         <span class="helpText">Cash $</span><input type="number" step="0.01" min="0" class="budgetLimitInput" data-catcash="${c.id}" value="${cash}" title="Cash needed for this category">
-        <button class="smallBtn" data-delcat="${c.id}">✕</button>
       </div>
       <div class="budgetBarTrack"><div class="budgetBarFill" style="width:${pct}%;background:${barColor}"></div></div>
       <div class="helpText" style="font-size:12px">$${spent.toFixed(2)} spent${limit>0? ' of $'+limit.toFixed(2) : ''}${over? ' · over budget':''}</div>
