@@ -1053,7 +1053,7 @@ function homeHTML(){
       <div class="homeLink" data-hometab="calendar"><div class="helpText" style="font-weight:700">📅 Events</div><div style="font-size:15px;margin-top:2px">${todayEvents.length} scheduled today <span class="homeLinkArrow">›</span></div></div>
       <div class="homeLink" data-hometab="meals"><div class="helpText" style="font-weight:700">🍽 Meals</div><div style="font-size:15px;margin-top:2px">${mealBits.length? escapeHtml(mealBits.join(" · ")) : "Nothing planned yet"} <span class="homeLinkArrow">›</span></div></div>
       <div class="homeLink" data-hometab="lists"><div class="helpText" style="font-weight:700">🛒 ${groceryList?escapeHtml(groceryList.name):'Grocery'}</div><div style="font-size:15px;margin-top:2px">${groceryRemaining} item${groceryRemaining===1?'':'s'} left <span class="homeLinkArrow">›</span></div></div>
-      <div class="homeLink" data-hometab="budget"><div class="helpText" style="font-weight:700">💰 Budget</div><div style="font-size:15px;margin-top:2px">${state.budget.categories.length? '$'+budgetRemaining.toFixed(2)+' left this month' : 'Not set up yet'} <span class="homeLinkArrow">›</span></div></div>
+      <div class="homeLink" data-hometab="budget"><div class="helpText" style="font-weight:700">💰 Budget</div><div style="font-size:15px;margin-top:2px">${state.budget.categories.length? '$'+fmtMoney(budgetRemaining)+' left this month' : 'Not set up yet'} <span class="homeLinkArrow">›</span></div></div>
     </div>
   </div>
   <div class="col2">
@@ -1728,6 +1728,9 @@ let budgetMonthCursor = new Date(new Date().getFullYear(), new Date().getMonth()
 let lastBudgetImportMsg = ""; // survives the re-render right after an import so the confirmation actually shows
 function monthKeyOf(d){ return d.getFullYear()+"-"+pad(d.getMonth()+1); }
 function monthLabelOf(d){ return MONTHS[d.getMonth()]+" "+d.getFullYear(); }
+// For read-only display text only (headline numbers, totals, subtotals) --
+// never used on an <input type="number">, since those can't contain commas.
+function fmtMoney(n){ return (+n||0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}); }
 function shiftBudgetMonth(n){
   budgetMonthCursor = new Date(budgetMonthCursor.getFullYear(), budgetMonthCursor.getMonth()+n, 1);
 }
@@ -1796,7 +1799,7 @@ function budgetHTML(){
     const g = c.group || "";
     if(g !== lastGroup){
       const groupTotal = cats.filter(x=>(x.group||"")===g).reduce((s,x)=> s+(+x.monthlyLimit||0), 0);
-      catsHtml += `<div class="budgetGroupHead">${g? escapeHtml(g) : "Other"}<span class="budgetGroupTotal">$${groupTotal.toFixed(2)}</span></div>`;
+      catsHtml += `<div class="budgetGroupHead">${g? escapeHtml(g) : "Other"}<span class="budgetGroupTotal">$${fmtMoney(groupTotal)}</span></div>`;
       lastGroup = g;
     }
     const spent = categorySpent(c.id, mKey);
@@ -1815,7 +1818,7 @@ function budgetHTML(){
         <span class="helpText">Cash $</span><input type="number" step="0.01" min="0" class="budgetLimitInput" data-catcash="${c.id}" value="${cash}" title="Cash needed for this category">
       </div>
       <div class="budgetBarTrack"><div class="budgetBarFill" style="width:${pct}%;background:${barColor}"></div></div>
-      <div class="helpText" style="font-size:12px">$${spent.toFixed(2)} spent${limit>0? ' of $'+limit.toFixed(2) : ''}${over? ' · over budget':''}</div>
+      <div class="helpText" style="font-size:12px">$${fmtMoney(spent)} spent${limit>0? ' of $'+fmtMoney(limit) : ''}${over? ' · over budget':''}</div>
     </div>`;
   }
 
@@ -1836,10 +1839,10 @@ function budgetHTML(){
         <div class="helpText" style="font-weight:700">Monthly income</div>
         <div style="display:flex;align-items:center;gap:4px"><span style="font-size:20px;font-weight:700">$</span><input type="number" step="0.01" min="0" id="budgetIncomeInput" value="${income}" style="font-size:20px;font-weight:700;border:none;background:transparent;width:100%;padding:0"></div>
       </div>
-      <div><div class="helpText" style="font-weight:700">Budgeted</div><div style="font-size:20px;font-weight:700">$${totalBudgeted.toFixed(2)}</div></div>
-      <div><div class="helpText" style="font-weight:700">Balance</div><div style="font-size:20px;font-weight:700;color:${balance<0?'#c0392b':'var(--good)'}">$${balance.toFixed(2)}</div></div>
-      <div><div class="helpText" style="font-weight:700">Spent (${monthLabelOf(budgetMonthCursor)})</div><div style="font-size:20px;font-weight:700">$${totalSpent.toFixed(2)}</div></div>
-      <div><div class="helpText" style="font-weight:700">Remaining</div><div style="font-size:20px;font-weight:700;color:${remaining<0?'#c0392b':'var(--good)'}">$${remaining.toFixed(2)}</div></div>
+      <div><div class="helpText" style="font-weight:700">Budgeted</div><div style="font-size:20px;font-weight:700">$${fmtMoney(totalBudgeted)}</div></div>
+      <div><div class="helpText" style="font-weight:700">Balance</div><div style="font-size:20px;font-weight:700;color:${balance<0?'#c0392b':'var(--good)'}">$${fmtMoney(balance)}</div></div>
+      <div><div class="helpText" style="font-weight:700">Spent (${monthLabelOf(budgetMonthCursor)})</div><div style="font-size:20px;font-weight:700">$${fmtMoney(totalSpent)}</div></div>
+      <div><div class="helpText" style="font-weight:700">Remaining</div><div style="font-size:20px;font-weight:700;color:${remaining<0?'#c0392b':'var(--good)'}">$${fmtMoney(remaining)}</div></div>
     </div>
   </div>
 
