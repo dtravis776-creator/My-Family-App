@@ -143,6 +143,17 @@
   .starTally{font-size:13px;color:var(--warn);font-weight:700;}
   .choreRow,.itemRow{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);}
   .choreRow:last-child,.itemRow:last-child{border-bottom:none;}
+  /* The chore row grew a 5th element (the always-visible due-date row)
+     without ever being told it's allowed to wrap onto more than one line.
+     Without flex-wrap, and with the name input refusing to shrink below
+     its content size (a flex item's default min-width is "auto", not 0),
+     every chore row overflowed/squished on narrow screens -- badly enough
+     that the delete (✕) button could end up sitting where the chore's
+     name/checkbox visually appeared, so tapping "to edit" actually landed
+     on delete instead. flex-wrap here, plus letting the name input
+     actually shrink, fixes both the overlap and the accidental deletes. */
+  .choreRow{flex-wrap:wrap;}
+  .choreRow input.editableText.rowText{min-width:60px; flex:1 1 90px;}
   .checkBox{width:26px;height:26px;border-radius:8px;border:2px solid var(--line);flex-shrink:0;
     display:flex;align-items:center;justify-content:center;font-size:15px;}
   .checkBox.done{background:var(--good);border-color:var(--good);color:#fff;}
