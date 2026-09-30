@@ -296,7 +296,11 @@
     nav .navIcon{font-size:17px;}
     nav .navLabel{font-size:10px;}
 
-    main{padding:10px max(12px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));}
+    /* Bottom padding must stay tall enough to clear the floating nav
+       button (added after this mobile rule was first written) -- this
+       used to collapse back down to 16px on phones/tablets, which let the
+       FAB sit on top of the last item in a list/chore/budget card. */
+    main{padding:10px max(12px, env(safe-area-inset-right)) max(96px, calc(80px + env(safe-area-inset-bottom))) max(12px, env(safe-area-inset-left));}
     .cal-toolbar{gap:8px;}
     .cal-toolbar .navBtns{gap:6px;}
     .cal-toolbar h2{font-size:15px;min-width:0;margin:0 4px;}
@@ -540,7 +544,15 @@ function defaultState(){
       // One-way meal import from Mealie (mealie.io) — a free, open-source,
       // self-hostable meal planner with a real API. See syncMealsFromMealie().
       mealieUrl:"", mealieToken:"", mealieUseProxy:false,
-      mealieLastSync:"", mealieLastError:""
+      mealieLastSync:"", mealieLastError:"",
+      // Direct Google Calendar connection (no ICS link needed) via a small
+      // Cloudflare Worker that holds the Google OAuth refresh token server
+      // side -- see syncGoogleCalendarDirect() and the GOOGLE CALENDAR
+      // DIRECT SYNC block near the bottom of this file. The refresh token
+      // itself NEVER touches this app or Firestore; only these harmless
+      // settings do.
+      gcalWorkerUrl:"", gcalConnected:false, gcalProfileId:"", gcalCalendarId:"primary",
+      gcalLastSync:"", gcalLastError:""
     }
   };
 }
@@ -841,6 +853,100 @@ async function syncAllFeeds(showAlert){
   if(currentTab==="calendar") renderTab();
   if(currentTab==="settings") renderTab();
   if(showAlert && anyError) alert("Some calendars failed to sync: "+anyError.message+"\nCheck the feed link / proxy in Settings.");
+}
+
+/* =========================================================================
+   GOOGLE CALENDAR — DIRECT SYNC (no ICS link needed)
+   Instead of pasting a calendar's public ICS link (see syncFeed() above),
+   this reads straight from a Google account via the Google Calendar API,
+   automatically, once connected. The one thing a static, no-backend app
+   like this one genuinely cannot do safely on its own is keep that
+   connection alive indefinitely: Google's OAuth "refresh token" (the thing
+   that lets a connection renew itself without you re-approving it every
+   hour) can only be safely exchanged for a fresh access token by code that
+   holds a secret -- and a secret baked into this file would be sitting in
+   plain text on a public GitHub Pages site for anyone to copy. So the
+   refresh token and the exchange step both live in a small Cloudflare
+   Worker instead (see google-calendar-worker.js) -- this app only ever
+   talks to that Worker, and never sees or stores the refresh token itself.
+   ========================================================================= */
+
+// Kicks off the Google sign-in flow for calendar access. This is a full
+// page redirect (not a popup) so it works the same on a phone/PWA install
+// as it does on a desktop browser. The Worker sends the user back here
+// afterwards with ?gcal=connected or ?gcal=error in the URL — see
+// handleGoogleCalendarRedirect(), called once at boot.
+function connectGoogleCalendar(){
+  const workerUrl = (state.settings.gcalWorkerUrl||"").trim().replace(/\/$/,"");
+  if(!workerUrl){ alert("Enter your Cloudflare Worker's URL first (Settings → Google Calendar)."); return; }
+  if(!householdCode){ alert("Sign in and create/join a household first — the direct Google Calendar connection is stored per household."); return; }
+  const returnTo = location.origin + location.pathname;
+  location.href = `${workerUrl}/oauth/start?household=${encodeURIComponent(householdCode)}&returnTo=${encodeURIComponent(returnTo)}`;
+}
+function disconnectGoogleCalendar(){
+  state.settings.gcalConnected = false;
+  state.events = state.events.filter(e=>e.feedId!=="gcal_direct");
+  saveState(); renderTab();
+}
+// Checks the URL for the Worker's redirect-back result after the Google
+// consent screen, applies it, and cleans the URL up so refreshing the page
+// doesn't re-trigger it.
+function handleGoogleCalendarRedirect(){
+  const params = new URLSearchParams(location.search);
+  const gcal = params.get("gcal");
+  if(!gcal) return false;
+  if(gcal==="connected"){
+    state.settings.gcalConnected = true;
+    state.settings.gcalLastError = "";
+    saveState();
+    syncGoogleCalendarDirect(false);
+  } else if(gcal==="error"){
+    state.settings.gcalLastError = params.get("message") || "Google Calendar connection failed.";
+    saveState();
+  }
+  params.delete("gcal"); params.delete("message");
+  const cleanUrl = location.pathname + (params.toString()? "?"+params.toString() : "") + location.hash;
+  history.replaceState(null, "", cleanUrl);
+  return true;
+}
+async function syncGoogleCalendarDirect(showAlert){
+  if(!state.settings.gcalConnected || !state.settings.gcalWorkerUrl || !householdCode) return;
+  const workerUrl = state.settings.gcalWorkerUrl.trim().replace(/\/$/,"");
+  const calendarId = state.settings.gcalCalendarId || "primary";
+  try{
+    const res = await fetch(`${workerUrl}/events?household=${encodeURIComponent(householdCode)}&calendarId=${encodeURIComponent(calendarId)}`);
+    const data = await res.json().catch(()=> ({}));
+    if(!res.ok) throw new Error(data.error || ("HTTP "+res.status));
+    const items = Array.isArray(data.items) ? data.items : [];
+    const profileId = state.settings.gcalProfileId || (state.profiles[0] ? state.profiles[0].id : "");
+    const mapped = items.map(it=>{
+      const allDay = !!(it.start && it.start.date && !it.start.dateTime);
+      const startISO = allDay
+        ? new Date(it.start.date+"T00:00:00").toISOString()
+        : new Date(it.start.dateTime).toISOString();
+      const endRaw = (it.end && (it.end.date || it.end.dateTime)) || (it.start && (it.start.date || it.start.dateTime));
+      const endISO = allDay
+        ? new Date((it.end&&it.end.date || it.start.date)+"T23:59:00").toISOString()
+        : new Date(endRaw).toISOString();
+      return {
+        id: "gcal_"+it.id,
+        title: it.summary || "(untitled event)",
+        start: startISO, end: endISO, allDay,
+        profileId, location: it.location||"", notes: it.description||"",
+        feedId: "gcal_direct"
+      };
+    });
+    state.events = state.events.filter(e=>e.feedId!=="gcal_direct").concat(mapped);
+    state.settings.gcalLastSync = new Date().toISOString();
+    state.settings.gcalLastError = "";
+    saveState();
+    if(currentTab==="calendar" || currentTab==="settings") renderTab();
+  }catch(e){
+    state.settings.gcalLastError = e.message;
+    saveState();
+    if(currentTab==="settings") renderTab();
+    if(showAlert) alert("Google Calendar sync failed: "+e.message);
+  }
 }
 
 /* ============================ WEATHER ============================ */
@@ -1384,12 +1490,11 @@ function choresHTML(){
             <span>${isRecurring?'🔁 Daily':'One-time'}</span>
           </label>
           <button class="smallBtn" data-delchore="${c.id}">✕</button>
-          ${!isRecurring ? `
           <div class="choreReschedule">
-            <span style="font-size:12px;color:var(--muted)">Due:</span>
-            <input type="date" data-choremove="${c.id}" value="${c.date||viewDate}" title="Editable due date -- move this task to any day">
-            ${!done ? `<button class="miniBtn" data-pushtomorrow="${c.id}|${viewDate}">➜ Tomorrow</button>` : ''}
-          </div>` : ''}
+            <span style="font-size:12px;color:var(--muted)">${isRecurring? 'Date:' : 'Due:'}</span>
+            <input type="date" data-choremove="${c.id}" value="${c.date||viewDate}" title="${isRecurring? 'Editable date for this chore' : 'Editable due date -- move this task to any day'}">
+            ${(!isRecurring && !done) ? `<button class="miniBtn" data-pushtomorrow="${c.id}|${viewDate}">➜ Tomorrow</button>` : ''}
+          </div>
         </div>`;
       }).join("") || `<p style="color:var(--muted);font-size:13px">No chores for ${viewDate===todayISO?'today':'this day'} yet.</p>`}
       <div class="addLine" style="flex-wrap:wrap">
@@ -1726,6 +1831,7 @@ function attachMealEvents(){
    securely, which doesn't fit this app's free, backend-less setup). */
 let budgetMonthCursor = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 let lastBudgetImportMsg = ""; // survives the re-render right after an import so the confirmation actually shows
+let pendingTxnPhoto = null; // compressed data-URL for a receipt photo picked before "+ Add expense" is clicked; cleared once the expense is logged
 function monthKeyOf(d){ return d.getFullYear()+"-"+pad(d.getMonth()+1); }
 function monthLabelOf(d){ return MONTHS[d.getMonth()]+" "+d.getFullYear(); }
 // For read-only display text only (headline numbers, totals, subtotals) --
@@ -1789,19 +1895,28 @@ function budgetHTML(){
   const income = +state.budget.monthlyIncome || 0;
   const balance = income - totalBudgeted;
 
-  // Group categories in whatever order they're stored, printing a new
-  // section header + subtotal each time the group changes -- this mirrors
-  // a real budget sheet's sections (Utilities, Giving, Savings...) without
-  // needing separate "section" objects to manage.
-  let catsHtml = "";
-  let lastGroup = Symbol("unset");
+  // Group categories by their `group` field -- NOT by array position. New
+  // categories (added via the form, or by bulk import) always get pushed to
+  // the end of the array, so a naive "print a header whenever the group
+  // changes as we walk the array" approach would split a group into two
+  // separate sections (each with its own, wrong, subtotal) as soon as a
+  // second batch of the same group's categories was added later. Instead,
+  // bucket every category by group first, keeping each group's own section
+  // in the order it was first encountered, then render one header per group
+  // with everything that belongs to it.
+  const groupOrder = [];
+  const groupBuckets = new Map();
   for(const c of cats){
     const g = c.group || "";
-    if(g !== lastGroup){
-      const groupTotal = cats.filter(x=>(x.group||"")===g).reduce((s,x)=> s+(+x.monthlyLimit||0), 0);
-      catsHtml += `<div class="budgetGroupHead">${g? escapeHtml(g) : "Other"}<span class="budgetGroupTotal">$${fmtMoney(groupTotal)}</span></div>`;
-      lastGroup = g;
-    }
+    if(!groupBuckets.has(g)){ groupBuckets.set(g, []); groupOrder.push(g); }
+    groupBuckets.get(g).push(c);
+  }
+  let catsHtml = "";
+  for(const g of groupOrder){
+    const bucket = groupBuckets.get(g);
+    const groupTotal = bucket.reduce((s,x)=> s+(+x.monthlyLimit||0), 0);
+    catsHtml += `<div class="budgetGroupHead">${g? escapeHtml(g) : "Other"}<span class="budgetGroupTotal">$${fmtMoney(groupTotal)}</span></div>`;
+    for(const c of bucket){
     const spent = categorySpent(c.id, mKey);
     const limit = +c.monthlyLimit || 0;
     const cash = +c.cashNeeded || 0;
@@ -1820,6 +1935,7 @@ function budgetHTML(){
       <div class="budgetBarTrack"><div class="budgetBarFill" style="width:${pct}%;background:${barColor}"></div></div>
       <div class="helpText" style="font-size:12px">$${fmtMoney(spent)} spent${limit>0? ' of $'+fmtMoney(limit) : ''}${over? ' · over budget':''}</div>
     </div>`;
+    }
   }
 
   return `
@@ -1866,6 +1982,15 @@ function budgetHTML(){
       <div class="field"><label>Date</label><input type="date" id="newTxnDate" value="${isoDate(new Date())}"></div>
       ${state.profiles.length? `<div class="field"><label>Paid by</label><select id="newTxnPaidBy"><option value="">(unspecified)</option>${state.profiles.map(p=>`<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("")}</select></div>` : ''}
       <div class="field"><label>Note (optional)</label><input type="text" id="newTxnNote" placeholder="e.g. weekly grocery run"></div>
+      <div class="field">
+        <label>Receipt photo (optional)</label>
+        <input type="file" accept="image/*" capture="environment" id="newTxnPhotoInput" style="display:none">
+        <button type="button" class="miniBtn" id="newTxnPhotoBtn">📷 ${pendingTxnPhoto? 'Change photo' : 'Add photo'}</button>
+        ${pendingTxnPhoto? `<span style="display:inline-flex;align-items:center;gap:6px;margin-left:8px;vertical-align:middle">
+          <img src="${pendingTxnPhoto}" style="width:36px;height:36px;object-fit:cover;border-radius:6px;border:1px solid var(--line)">
+          <button type="button" class="smallBtn" id="newTxnPhotoRemove">✕</button>
+        </span>` : ''}
+      </div>
       <button class="miniBtn" id="addTxnBtn" ${cats.length? '' : 'disabled'} style="margin-top:6px">+ Add expense</button>
     </div>
   </div>
@@ -1876,6 +2001,7 @@ function budgetHTML(){
       const cat = cats.find(c=>c.id===t.categoryId);
       const payer = t.paidBy ? profileById(t.paidBy) : null;
       return `<div class="itemRow">
+        ${t.receiptPhoto? `<img src="${t.receiptPhoto}" data-viewreceipt="${t.id}" title="Tap to view receipt" style="width:32px;height:32px;object-fit:cover;border-radius:6px;border:1px solid var(--line);cursor:pointer;flex-shrink:0">` : ''}
         <div style="flex:1;min-width:0">
           <div class="rowText">${escapeHtml(cat?cat.name:'Uncategorized')}${t.note? ' — '+escapeHtml(t.note):''}</div>
           <div class="helpText" style="font-size:11px">${t.date}${payer? ' · '+escapeHtml(payer.name):''}</div>
@@ -2009,6 +2135,35 @@ function attachBudgetEvents(){
     state.budget.transactions = state.budget.transactions.filter(t=>t.id!==btn.dataset.deltxn);
     saveState(); renderTab();
   });
+  // ---- Receipt photo: pick + compress (reuses the same resizeImageFile
+  // helper the Photo Screensaver feature already uses), preview, remove.
+  // Kept smaller (700px/0.5 quality) than screensaver photos since these
+  // live inside the shared household state document that syncs to every
+  // device on every change -- a phone-quality receipt photo is still
+  // perfectly readable at that size, and keeping it small matters more
+  // here than for a big showcase photo. ----
+  const newTxnPhotoBtn=document.getElementById("newTxnPhotoBtn");
+  const newTxnPhotoInput=document.getElementById("newTxnPhotoInput");
+  if(newTxnPhotoBtn && newTxnPhotoInput){
+    newTxnPhotoBtn.onclick=()=> newTxnPhotoInput.click();
+    newTxnPhotoInput.addEventListener("change",()=>{
+      const file=newTxnPhotoInput.files[0]; if(!file) return;
+      resizeImageFile(file, 700, 0.5).then(dataUrl=>{
+        pendingTxnPhoto = dataUrl;
+        renderTab();
+      }).catch(()=>{ /* if compression fails, just leave no photo attached rather than crash the form */ });
+    });
+  }
+  const newTxnPhotoRemove=document.getElementById("newTxnPhotoRemove");
+  if(newTxnPhotoRemove) newTxnPhotoRemove.onclick=()=>{ pendingTxnPhoto=null; renderTab(); };
+
+  // Tap a receipt thumbnail in the Transactions list to view it full-size.
+  document.querySelectorAll("[data-viewreceipt]").forEach(img=> img.onclick=()=>{
+    const txn = state.budget.transactions.find(t=>t.id===img.dataset.viewreceipt); if(!txn || !txn.receiptPhoto) return;
+    showModal(`<h3>Receipt</h3><img src="${txn.receiptPhoto}" style="width:100%;border-radius:10px"><button class="miniBtn" style="margin-top:12px" data-closemodal="1">Close</button>`);
+    const closeBtn=document.querySelector('[data-closemodal]'); if(closeBtn) closeBtn.onclick=closeModal;
+  });
+
   const addTxnBtn=document.getElementById("addTxnBtn");
   if(addTxnBtn) addTxnBtn.onclick=()=>{
     const amountInput=document.getElementById("newTxnAmount");
@@ -2024,8 +2179,10 @@ function attachBudgetEvents(){
       amount,
       note: (noteInput.value||"").trim(),
       date: dateInput.value || isoDate(new Date()),
-      paidBy: paidBySelect ? paidBySelect.value : ""
+      paidBy: paidBySelect ? paidBySelect.value : "",
+      receiptPhoto: pendingTxnPhoto || null
     });
+    pendingTxnPhoto = null;
     saveState(); renderTab();
   };
 }
@@ -2154,6 +2311,27 @@ function settingsHTML(){
       <div style="margin-top:10px"><button class="miniBtn" id="syncNowBtn">🔄 Sync now</button></div>
       <p class="helpText">CORS proxy in use: <input type="text" id="proxyTemplate" value="${escapeHtml(state.settings.proxyTemplate)}" style="width:100%;margin-top:4px;padding:6px;border:1px solid var(--line);border-radius:6px">
       If a feed keeps failing, try swapping in <code>https://corsproxy.io/?url={url}</code> instead. Free proxies aren't 100% guaranteed — ask Claude for a more durable option if this becomes unreliable.</p>
+    </div>
+
+    <div class="card">
+      <h3><span class="titleGroup"><span class="iconBadge" style="background:#e6f0ff;color:#2a5db0">📅</span>Google Calendar (direct connection)</span><span class="newTag">New</span></h3>
+      <p class="helpText">Connects straight to a Google account's calendar — no ICS link to copy/paste, and it re-syncs on its own. Needs a one-time setup (a small free Cloudflare Worker) — see the setup guide for the exact steps.</p>
+      <div class="field"><label>Cloudflare Worker URL</label><input type="url" id="gcalWorkerUrl" placeholder="https://your-worker-name.your-subdomain.workers.dev" value="${escapeHtml(state.settings.gcalWorkerUrl)}"></div>
+      ${state.profiles.length? `<div class="field"><label>Tag these events as</label><select id="gcalProfileId">${state.profiles.map(p=>`<option value="${p.id}" ${p.id===state.settings.gcalProfileId?'selected':''}>${escapeHtml(p.name)}</option>`).join("")}</select></div>` : ''}
+      <div class="field"><label>Calendar</label><input type="text" id="gcalCalendarId" value="${escapeHtml(state.settings.gcalCalendarId||'primary')}" title="Leave as 'primary' for the account's main calendar, or paste a specific calendar's ID from Google Calendar settings"></div>
+      ${state.settings.gcalConnected ? `
+        <p class="helpText" style="color:var(--good)">✅ Connected${state.settings.gcalLastSync? ' — last synced '+new Date(state.settings.gcalLastSync).toLocaleString() : ''}</p>
+        ${state.settings.gcalLastError? `<p class="helpText" style="color:#c0392b">Last sync failed: ${escapeHtml(state.settings.gcalLastError)}</p>` : ''}
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
+          <button class="miniBtn" id="gcalSyncNowBtn">🔄 Sync now</button>
+          <button class="miniBtn danger" id="gcalDisconnectBtn">Disconnect</button>
+        </div>
+        <p class="helpText" style="margin-top:8px">Disconnecting here just stops this app from syncing — to fully revoke access on Google's side too, visit <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener">myaccount.google.com/permissions</a>.</p>
+      ` : `
+        ${state.settings.gcalLastError? `<p class="helpText" style="color:#c0392b">${escapeHtml(state.settings.gcalLastError)}</p>` : ''}
+        <button class="miniBtn" id="gcalConnectBtn" style="margin-top:6px">🔗 Connect Google Calendar</button>
+        ${!householdCode? `<p class="helpText" style="color:#c0392b">Sign in and create/join a household first (Settings → Household Account) — this connection is stored per household.</p>` : ''}
+      `}
     </div>
 
     <div class="card">
@@ -2291,6 +2469,21 @@ function attachSettingsEvents(){
   if(proxyTemplate) proxyTemplate.addEventListener("change",()=>{
     state.settings.proxyTemplate = proxyTemplate.value; saveState();
   });
+
+  const gcalWorkerUrl=document.getElementById("gcalWorkerUrl");
+  if(gcalWorkerUrl) gcalWorkerUrl.addEventListener("change",()=>{ state.settings.gcalWorkerUrl=gcalWorkerUrl.value.trim(); saveState(); });
+  const gcalProfileId=document.getElementById("gcalProfileId");
+  if(gcalProfileId) gcalProfileId.addEventListener("change",()=>{ state.settings.gcalProfileId=gcalProfileId.value; saveState(); });
+  const gcalCalendarId=document.getElementById("gcalCalendarId");
+  if(gcalCalendarId) gcalCalendarId.addEventListener("change",()=>{ state.settings.gcalCalendarId=gcalCalendarId.value.trim()||"primary"; saveState(); });
+  const gcalConnectBtn=document.getElementById("gcalConnectBtn");
+  if(gcalConnectBtn) gcalConnectBtn.onclick=()=> connectGoogleCalendar();
+  const gcalSyncNowBtn=document.getElementById("gcalSyncNowBtn");
+  if(gcalSyncNowBtn) gcalSyncNowBtn.onclick=()=> syncGoogleCalendarDirect(true);
+  const gcalDisconnectBtn=document.getElementById("gcalDisconnectBtn");
+  if(gcalDisconnectBtn) gcalDisconnectBtn.onclick=()=>{
+    if(confirm("Stop syncing this Google Calendar? (This only affects this app -- see the note below to fully revoke access on Google's side.)")) disconnectGoogleCalendar();
+  };
 
   const mealieUrl=document.getElementById("mealieUrl");
   if(mealieUrl) mealieUrl.addEventListener("change",()=>{ state.settings.mealieUrl=mealieUrl.value.trim(); saveState(); });
@@ -2537,6 +2730,9 @@ function boot(){
   if(state.settings.lat!=null){ refreshWeather(); setInterval(refreshWeather, 60*60*1000); }
   if(state.feeds.length){ syncAllFeeds(false); }
   setInterval(()=> syncAllFeeds(false), Math.max(5,state.settings.syncMinutes||20)*60*1000);
+  const gcalHandledRedirect = handleGoogleCalendarRedirect();
+  if(state.settings.gcalConnected && !gcalHandledRedirect){ syncGoogleCalendarDirect(false); }
+  setInterval(()=> syncGoogleCalendarDirect(false), Math.max(5,state.settings.syncMinutes||20)*60*1000);
   setInterval(checkIdleForScreensaver, 15000);
 }
 
