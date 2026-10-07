@@ -573,6 +573,18 @@ function defaultState(){
 
 let state = loadState();
 
+// The Cloudflare Worker that powers calendar sync + Quick Add. Households
+// don't need to enter it: this default is used whenever the Settings field
+// is blank. (Anyone can still override it in Settings -> Google Calendar.)
+const DEFAULT_WORKER_URL = "https://my-family-calendar.dtravis776.workers.dev";
+function workerBase(){ return ((state.settings.gcalWorkerUrl||"").trim() || DEFAULT_WORKER_URL).replace(/\/$/,""); }
+// Proves to the Worker who is asking (the Worker verifies this Firebase token
+// and checks the user really belongs to the household they're asking about).
+async function workerAuthHeaders(){
+  try{ if(currentUser && typeof currentUser.getIdToken==="function") return { Authorization:"Bearer "+await currentUser.getIdToken() }; }catch(e){}
+  return {};
+}
+
 // --- Account / household sync state (see AUTH / HOUSEHOLD SYNC block near
 // the bottom of this file for the functions that use these). ---
 let householdCode = null;       // Firestore household doc id once joined/created
@@ -896,8 +908,7 @@ async function syncFeed(feed){
   // feed is fetched through it FIRST -- it's the dependable option, since
   // the free public proxies below get blocked or rate-limited regularly.
   // The public proxies stay as fallbacks.
-  const workerBase = (state.settings.gcalWorkerUrl||"").trim().replace(/\/$/,"");
-  const workerTemplate = workerBase ? workerBase+"/ics?url={url}" : null;
+  const workerTemplate = workerBase()+"/ics?url={url}";
   const templates = [workerTemplate, state.settings.proxyTemplate, FALLBACK_PROXY].filter((v,i,a)=> v && a.indexOf(v)===i);
   // Calendar apps hand out "webcal://" links; those are just https underneath.
   const feedUrl = (feed.url||"").trim().replace(/^webcal:/i, "https:");
@@ -935,7 +946,7 @@ document.addEventListener("visibilitychange", ()=>{
 // sync, with a tap-to-retry -- so a quietly failing sync is never invisible.
 function calendarSyncStatusHTML(){
   const hasFeeds = state.feeds.length>0, hasDirect = !!state.settings.gcalConnected;
-  if(!hasDirect && (state.settings.gcalWorkerUrl||"").trim() && householdCode){
+  if(!hasDirect && householdCode && currentUser && !state.feeds.length){
     return `<div class="helpText" id="calSyncStatus" style="margin:0 0 10px">📅 One-time step: connect Google Calendar so it syncs permanently. <a href="#" id="gcalConnectLink" style="margin-left:6px;color:var(--accent);font-weight:600">Connect Google Calendar</a>${state.settings.gcalLastError? `<div style="color:#c0392b">${escapeHtml(state.settings.gcalLastError)}</div>`:''}</div>`;
   }
   const viaSignIn = !hasDirect && gcalSignInWanted();
@@ -995,14 +1006,34 @@ async function syncAllFeeds(showAlert){
 // as it does on a desktop browser. The Worker sends the user back here
 // afterwards with ?gcal=connected or ?gcal=error in the URL — see
 // handleGoogleCalendarRedirect(), called once at boot.
-function connectGoogleCalendar(){
-  const workerUrl = (state.settings.gcalWorkerUrl||"").trim().replace(/\/$/,"");
-  if(!workerUrl){ alert("Enter your Cloudflare Worker's URL first (Settings → Google Calendar)."); return; }
+async function connectGoogleCalendar(){
+  const workerUrl = workerBase();
   if(!householdCode){ alert("Sign in and create/join a household first — the direct Google Calendar connection is stored per household."); return; }
   const returnTo = location.origin + location.pathname;
-  location.href = `${workerUrl}/oauth/start?household=${encodeURIComponent(householdCode)}&returnTo=${encodeURIComponent(returnTo)}`;
+  try{
+    const res = await fetch(`${workerUrl}/oauth/init`, {
+      method:"POST",
+      headers:{ "Content-Type":"application/json", ...(await workerAuthHeaders()) },
+      body: JSON.stringify({ household: householdCode, returnTo })
+    });
+    const data = await res.json().catch(()=>({}));
+    if(!res.ok || !data.nonce) throw new Error(data.error || ("HTTP "+res.status));
+    location.href = `${workerUrl}/oauth/start?nonce=${encodeURIComponent(data.nonce)}`;
+  }catch(e){
+    state.settings.gcalLastError = "Couldn't start the Google connection: " + e.message;
+    saveState();
+    if(currentTab==="calendar" || currentTab==="settings") renderTab();
+    alert(state.settings.gcalLastError);
+  }
 }
-function disconnectGoogleCalendar(){
+async function disconnectGoogleCalendar(){
+  // Best effort: also delete the stored Google token on the Worker.
+  try{
+    if(householdCode) await fetch(`${workerBase()}/oauth/disconnect`, {
+      method:"POST", headers:{ "Content-Type":"application/json", ...(await workerAuthHeaders()) },
+      body: JSON.stringify({ household: householdCode })
+    });
+  }catch(e){}
   state.settings.gcalConnected = false;
   state.events = state.events.filter(e=>e.feedId!=="gcal_direct");
   saveState(); renderTab();
@@ -1116,15 +1147,15 @@ async function syncGoogleCalendarWithToken(showAlert){
 function clearGcalTokenKeepWanted(){ try{ localStorage.setItem(GCAL_TOKEN_KEY, JSON.stringify({ token:"", expiresAt:0, wanted:true })); }catch(e){} }
 // Single entry point used on open / foreground / Sync now.
 function syncGoogleCalendarAuto(showAlert){
-  if(state.settings.gcalConnected && state.settings.gcalWorkerUrl) return syncGoogleCalendarDirect(showAlert);
+  if(state.settings.gcalConnected) return syncGoogleCalendarDirect(showAlert);
   if(validGcalToken()) return syncGoogleCalendarWithToken(showAlert);
 }
 async function syncGoogleCalendarDirect(showAlert){
-  if(!state.settings.gcalConnected || !state.settings.gcalWorkerUrl || !householdCode) return;
-  const workerUrl = state.settings.gcalWorkerUrl.trim().replace(/\/$/,"");
+  if(!state.settings.gcalConnected || !householdCode) return;
+  const workerUrl = workerBase();
   const calendarId = state.settings.gcalCalendarId || "primary";
   try{
-    const res = await fetch(`${workerUrl}/events?household=${encodeURIComponent(householdCode)}&calendarId=${encodeURIComponent(calendarId)}`);
+    const res = await fetch(`${workerUrl}/events?household=${encodeURIComponent(householdCode)}&calendarId=${encodeURIComponent(calendarId)}`, { headers: await workerAuthHeaders() });
     const data = await res.json().catch(()=> ({}));
     if(!res.ok) throw new Error(data.error || ("HTTP "+res.status));
     const items = Array.isArray(data.items) ? data.items : [];
@@ -1226,13 +1257,8 @@ async function runAiQuickAdd(text){
   aiQuickAddLog.push({id, text, status:"pending"});
   rerenderAiLog();
 
-  const workerUrl = (state.settings.gcalWorkerUrl||"").trim().replace(/\/$/,"");
+  const workerUrl = workerBase();
   const entry = ()=> aiQuickAddLog.find(e=>e.id===id);
-  if(!workerUrl){
-    Object.assign(entry(), {status:"error", error:"Set your Cloudflare Worker URL first — Settings → Google Calendar → Cloudflare Worker URL (Quick Add reuses it)."});
-    rerenderAiLog();
-    return;
-  }
   try{
     const context = {
       profiles: state.profiles.map(p=>({id:p.id, name:p.name})),
@@ -1241,7 +1267,7 @@ async function runAiQuickAdd(text){
     };
     const res = await fetch(`${workerUrl}/ai-quickadd`, {
       method:"POST",
-      headers:{"Content-Type":"application/json"},
+      headers:{"Content-Type":"application/json", ...(await workerAuthHeaders())},
       body: JSON.stringify({ text, context, today: isoDate(new Date()) })
     });
     const data = await res.json().catch(()=>({}));
@@ -2766,7 +2792,7 @@ function settingsHTML(){
       <h3><span class="titleGroup"><span class="iconBadge" style="background:#e6f0ff;color:#2a5db0">📅</span>Google Calendar (direct connection)</span><span class="newTag">New</span></h3>
       <p class="helpText"><b>Signing in with Google already syncs your calendar</b> (read-only) — it refreshes whenever you open the app. Google's sign-in access lasts about an hour, after which the Calendar tab shows a one-tap "Refresh Google Calendar" link. ${validGcalToken()? '<span style="color:var(--good)">✅ Calendar access active on this device.</span>' : (gcalSignInWanted()? '⚠️ Access lapsed on this device.' : 'Not granted on this device yet.')} <a href="#" id="gcalSignInRefreshLink">Refresh / grant access now</a></p>
       <p class="helpText">Want it to never need a refresh? Use the optional Cloudflare Worker below (one-time setup, see the guide). The same Worker URL also powers ✨ Quick Add.</p>
-      <div class="field"><label>Cloudflare Worker URL</label><input type="url" id="gcalWorkerUrl" placeholder="https://your-worker-name.your-subdomain.workers.dev" value="${escapeHtml(state.settings.gcalWorkerUrl)}"></div>
+      <div class="field"><label>Cloudflare Worker URL</label><input type="url" id="gcalWorkerUrl" placeholder="${DEFAULT_WORKER_URL}" value="${escapeHtml(state.settings.gcalWorkerUrl)}"> <span class="helpText">Leave blank to use the built-in one.</span></div>
       ${state.profiles.length? `<div class="field"><label>Tag these events as</label><select id="gcalProfileId">${state.profiles.map(p=>`<option value="${p.id}" ${p.id===state.settings.gcalProfileId?'selected':''}>${escapeHtml(p.name)}</option>`).join("")}</select></div>` : ''}
       <div class="field"><label>Calendar</label><input type="text" id="gcalCalendarId" value="${escapeHtml(state.settings.gcalCalendarId||'primary')}" title="Leave as 'primary' for the account's main calendar, or paste a specific calendar's ID from Google Calendar settings"></div>
       ${state.settings.gcalConnected ? `
