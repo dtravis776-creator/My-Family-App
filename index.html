@@ -892,11 +892,19 @@ async function syncFeed(feed){
   // that silently returns zero events. To catch that, we also verify the
   // response actually looks like a calendar file before accepting it.
   const FALLBACK_PROXY = "https://corsproxy.io/?url={url}";
-  const templates = [state.settings.proxyTemplate, FALLBACK_PROXY].filter((v,i,a)=> v && a.indexOf(v)===i);
+  // If a Cloudflare Worker URL is set (Settings -> Google Calendar), the
+  // feed is fetched through it FIRST -- it's the dependable option, since
+  // the free public proxies below get blocked or rate-limited regularly.
+  // The public proxies stay as fallbacks.
+  const workerBase = (state.settings.gcalWorkerUrl||"").trim().replace(/\/$/,"");
+  const workerTemplate = workerBase ? workerBase+"/ics?url={url}" : null;
+  const templates = [workerTemplate, state.settings.proxyTemplate, FALLBACK_PROXY].filter((v,i,a)=> v && a.indexOf(v)===i);
+  // Calendar apps hand out "webcal://" links; those are just https underneath.
+  const feedUrl = (feed.url||"").trim().replace(/^webcal:/i, "https:");
   let lastErr = null;
   for(const template of templates){
     try{
-      const proxied = template.replace("{url}", encodeURIComponent(feed.url));
+      const proxied = template.replace("{url}", encodeURIComponent(feedUrl));
       const res = await fetch(proxied);
       if(!res.ok) throw new Error("HTTP "+res.status);
       const text = await res.text();
@@ -910,7 +918,44 @@ async function syncFeed(feed){
   }
   throw lastErr || new Error("Sync failed");
 }
+// Pulls every calendar again, but only if the last pull is older than
+// `minMinutes` -- used when the app comes back to the foreground (switching
+// back to the tab/PWA), so reopening it always shows fresh events without
+// hammering the calendar host on every tiny tab switch.
+let lastCalendarSyncAt = 0;
+function syncCalendarsIfStale(minMinutes){
+  if(Date.now() - lastCalendarSyncAt < minMinutes*60*1000) return;
+  if(state.feeds.length) syncAllFeeds(false);
+  syncGoogleCalendarAuto(false);
+}
+document.addEventListener("visibilitychange", ()=>{
+  if(document.visibilityState==="visible" && appBooted) syncCalendarsIfStale(3);
+});
+// One line under the calendar toolbar saying whether the calendars are in
+// sync, with a tap-to-retry -- so a quietly failing sync is never invisible.
+function calendarSyncStatusHTML(){
+  const hasFeeds = state.feeds.length>0, hasDirect = !!state.settings.gcalConnected;
+  if(!hasDirect && (state.settings.gcalWorkerUrl||"").trim() && householdCode){
+    return `<div class="helpText" id="calSyncStatus" style="margin:0 0 10px">📅 One-time step: connect Google Calendar so it syncs permanently. <a href="#" id="gcalConnectLink" style="margin-left:6px;color:var(--accent);font-weight:600">Connect Google Calendar</a>${state.settings.gcalLastError? `<div style="color:#c0392b">${escapeHtml(state.settings.gcalLastError)}</div>`:''}</div>`;
+  }
+  const viaSignIn = !hasDirect && gcalSignInWanted();
+  if(viaSignIn && !validGcalToken()){
+    return `<div class="helpText" id="calSyncStatus" style="margin:0 0 10px">📅 Google Calendar needs a quick refresh. <a href="#" id="gcalRefreshLink" style="margin-left:6px;color:var(--accent);font-weight:600">Refresh Google Calendar</a>${state.settings.gcalLastError? `<div style="color:#c0392b">${escapeHtml(state.settings.gcalLastError)}</div>`:''}</div>`;
+  }
+  if(!hasFeeds && !hasDirect && !viaSignIn) return "";
+  const failed = state.feeds.find(f=>f.lastError);
+  const times = state.feeds.map(f=>f.lastSync).filter(Boolean);
+  if(state.settings.gcalLastSync) times.push(state.settings.gcalLastSync);
+  const last = times.length ? new Date(times.sort().slice(-1)[0]) : null;
+  const lastTxt = last ? last.toLocaleString(undefined,{weekday:"short",hour:"numeric",minute:"2-digit"}) : "not yet";
+  const err = failed ? failed.lastError : (state.settings.gcalLastError || "");
+  return `<div class="helpText" id="calSyncStatus" style="margin:0 0 10px;${err?'color:#c0392b':''}">
+    ${err ? '⚠️ Calendar sync failed — ' + escapeHtml(err.length>110? err.slice(0,110)+'…' : err) : '🔄 Calendar last synced ' + escapeHtml(lastTxt)}
+    <a href="#" id="calSyncNowLink" style="margin-left:6px;color:var(--accent)">Sync now</a>
+  </div>`;
+}
 async function syncAllFeeds(showAlert){
+  lastCalendarSyncAt = Date.now();
   let anyError=null;
   for(const feed of state.feeds){
     try{
@@ -982,6 +1027,97 @@ function handleGoogleCalendarRedirect(){
   const cleanUrl = location.pathname + (params.toString()? "?"+params.toString() : "") + location.hash;
   history.replaceState(null, "", cleanUrl);
   return true;
+}
+/* ---- Sign-in based sync (no Worker needed) ----
+   Signing in with Google also asks for read-only Calendar access. Google
+   hands back a short-lived access token (about an hour) which we keep ONLY
+   on this device (localStorage -- never in Firestore or the synced state)
+   and use to read the calendar straight from the browser. It can't renew
+   itself silently, so once it lapses the Calendar tab shows a one-tap
+   "Refresh Google Calendar" link (a popup that usually just flashes by). */
+const GCAL_SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
+const GCAL_TOKEN_KEY = "kitchenCalendarGoogleToken";
+function storeGcalTokenFromResult(result){
+  try{
+    const { GoogleAuthProvider } = fb();
+    const cred = GoogleAuthProvider.credentialFromResult(result);
+    if(cred && cred.accessToken){
+      localStorage.setItem(GCAL_TOKEN_KEY, JSON.stringify({ token: cred.accessToken, expiresAt: Date.now()+55*60*1000, wanted:true }));
+      return true;
+    }
+  }catch(e){}
+  return false;
+}
+function readGcalToken(){
+  try{ return JSON.parse(localStorage.getItem(GCAL_TOKEN_KEY)||"null"); }catch(e){ return null; }
+}
+function validGcalToken(){
+  const t = readGcalToken();
+  return (t && t.token && t.expiresAt > Date.now()) ? t.token : null;
+}
+// true when this device signed in with calendar access at some point (so a
+// lapsed token should prompt a refresh rather than stay silent)
+function gcalSignInWanted(){ const t = readGcalToken(); return !!(t && t.wanted); }
+function clearGcalToken(){ try{ localStorage.removeItem(GCAL_TOKEN_KEY); }catch(e){} }
+async function refreshGoogleCalendarAccess(){
+  try{
+    const { auth, GoogleAuthProvider, signInWithPopup } = fb();
+    const provider = new GoogleAuthProvider();
+    if(typeof provider.addScope==="function") provider.addScope(GCAL_SCOPE);
+    if(currentUser && currentUser.email && typeof provider.setCustomParameters==="function") provider.setCustomParameters({ login_hint: currentUser.email });
+    const result = await signInWithPopup(auth, provider);
+    if(!storeGcalTokenFromResult(result)) throw new Error("Google didn't return calendar access.");
+    state.settings.gcalLastError = "";
+    await syncGoogleCalendarWithToken(false);
+  }catch(e){
+    state.settings.gcalLastError = (e && e.message) ? e.message : String(e);
+    saveState();
+    if(currentTab==="calendar" || currentTab==="settings") renderTab();
+  }
+}
+function mapGoogleItems(items){
+  const profileId = state.settings.gcalProfileId || (state.profiles[0] ? state.profiles[0].id : "");
+  return items.filter(it=>it && it.start && it.status!=="cancelled").map(it=>{
+    const allDay = !!(it.start.date && !it.start.dateTime);
+    const startISO = allDay ? new Date(it.start.date+"T00:00:00").toISOString() : new Date(it.start.dateTime).toISOString();
+    const endRaw = (it.end && (it.end.date || it.end.dateTime)) || (it.start.date || it.start.dateTime);
+    const endISO = allDay ? new Date(((it.end&&it.end.date) || it.start.date)+"T23:59:00").toISOString() : new Date(endRaw).toISOString();
+    return { id:"gcal_"+it.id, title: it.summary || "(untitled event)", start:startISO, end:endISO, allDay,
+      profileId, location: it.location||"", notes: it.description||"", feedId:"gcal_direct" };
+  });
+}
+async function syncGoogleCalendarWithToken(showAlert){
+  const token = validGcalToken();
+  if(!token) return false;
+  const calendarId = state.settings.gcalCalendarId || "primary";
+  const timeMin = new Date(Date.now()-30*86400000).toISOString();
+  const timeMax = new Date(Date.now()+365*86400000).toISOString();
+  const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?singleEvents=true&orderBy=startTime&maxResults=250&timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}`;
+  try{
+    const res = await fetch(url, { headers:{ Authorization:"Bearer "+token } });
+    const data = await res.json().catch(()=> ({}));
+    if(res.status===401){ clearGcalTokenKeepWanted(); throw new Error("Google Calendar access expired — tap Refresh."); }
+    if(!res.ok) throw new Error((data.error && (data.error.message||data.error)) || ("HTTP "+res.status));
+    const mapped = mapGoogleItems(Array.isArray(data.items)? data.items : []);
+    state.events = state.events.filter(e=>e.feedId!=="gcal_direct").concat(mapped);
+    state.settings.gcalLastSync = new Date().toISOString();
+    state.settings.gcalLastError = "";
+    saveState();
+    if(currentTab==="calendar" || currentTab==="settings") renderTab();
+    return true;
+  }catch(e){
+    state.settings.gcalLastError = e.message;
+    saveState();
+    if(currentTab==="calendar" || currentTab==="settings") renderTab();
+    if(showAlert) alert("Google Calendar sync failed: "+e.message);
+    return false;
+  }
+}
+function clearGcalTokenKeepWanted(){ try{ localStorage.setItem(GCAL_TOKEN_KEY, JSON.stringify({ token:"", expiresAt:0, wanted:true })); }catch(e){} }
+// Single entry point used on open / foreground / Sync now.
+function syncGoogleCalendarAuto(showAlert){
+  if(state.settings.gcalConnected && state.settings.gcalWorkerUrl) return syncGoogleCalendarDirect(showAlert);
+  if(validGcalToken()) return syncGoogleCalendarWithToken(showAlert);
 }
 async function syncGoogleCalendarDirect(showAlert){
   if(!state.settings.gcalConnected || !state.settings.gcalWorkerUrl || !householdCode) return;
@@ -1495,6 +1631,7 @@ function calendarHTML(){
     <div class="profileChips">${chips}</div>
     <button class="addBtn" id="addEventBtn">+ Add Event</button>
   </div>
+  ${calendarSyncStatusHTML()}
   ${body}
   `;
 }
@@ -1565,6 +1702,12 @@ function attachTabEvents(){
       renderTab();
     });
     document.getElementById("addEventBtn").onclick=()=> openEventModal(null, isoDate(calCursor));
+    const calSyncLink=document.getElementById("calSyncNowLink");
+    if(calSyncLink) calSyncLink.onclick=(e)=>{ e.preventDefault(); calSyncLink.textContent="Syncing…"; syncAllFeeds(false); syncGoogleCalendarAuto(false); };
+    const gcalConnectLink=document.getElementById("gcalConnectLink");
+    if(gcalConnectLink) gcalConnectLink.onclick=(e)=>{ e.preventDefault(); connectGoogleCalendar(); };
+    const gcalRefreshLink=document.getElementById("gcalRefreshLink");
+    if(gcalRefreshLink) gcalRefreshLink.onclick=(e)=>{ e.preventDefault(); gcalRefreshLink.textContent="Opening Google…"; refreshGoogleCalendarAccess(); };
     document.querySelectorAll("[data-daycell]").forEach(cell=>{
       cell.addEventListener("click",()=> openDayModal(cell.dataset.daycell));
     });
@@ -1800,9 +1943,13 @@ function choresHTML(){
       </div>
 
       <div class="routinesSection">
-        <h4>🔁 Routines</h4>
+        <h4>🔁 Routines <span style="font-weight:400;font-size:12px;color:var(--muted);text-transform:none">— ${viewDate===todayISO?'today':escapeHtml(viewLabel)}</span></h4>
         ${myRoutines.map(r=>{
-          const prog = routineProgress(r, todayISO);
+          // Ticks are stored per day, so show (and edit) the day being
+          // viewed -- not always today. Before, tapping another day in the
+          // strip still showed today's ticks, which looked like a tick on
+          // one day had "crossed out every day".
+          const prog = routineProgress(r, viewDate);
           const complete = prog.total>0 && prog.done===prog.total;
           return `<div class="routineCard">
             <div class="routineHead">
@@ -1813,9 +1960,9 @@ function choresHTML(){
               </span>
             </div>
             ${r.steps.map(s=>{
-              const sdone = !!state.routineLog[r.id+"_"+s.id+"_"+todayISO];
+              const sdone = !!state.routineLog[r.id+"_"+s.id+"_"+viewDate];
               return `<div class="routineStep">
-                <div class="checkBox ${sdone?'done':''}" data-routinestep="${r.id}|${s.id}">${sdone?'✓':''}</div>
+                <div class="checkBox ${sdone?'done':''}" data-routinestep="${r.id}|${s.id}|${viewDate}">${sdone?'✓':''}</div>
                 <div class="rowText ${sdone?'done':''}">${escapeHtml(s.text)}</div>
               </div>`;
             }).join("")}
@@ -1960,9 +2107,11 @@ function attachChoreEvents(){
 
   // ---- Routines ----
   document.querySelectorAll("[data-routinestep]").forEach(el=> el.onclick=()=>{
-    const [rid,sid]=el.dataset.routinestep.split("|");
+    const [rid,sid,stepDate]=el.dataset.routinestep.split("|");
     const routine = state.routines.find(r=>r.id===rid); if(!routine) return;
-    const todayISO=isoDate(new Date());
+    // The day this tick belongs to (the day being viewed); falls back to
+    // today for the Home dashboard / any older markup without a date.
+    const todayISO = stepDate || isoDate(new Date());
     const key=rid+"_"+sid+"_"+todayISO;
     const wasCompleteBefore = routineProgress(routine, todayISO).total>0 && routineProgress(routine, todayISO).done===routineProgress(routine, todayISO).total;
     state.routineLog[key] = !state.routineLog[key];
@@ -2593,7 +2742,7 @@ function settingsHTML(){
 
     <div class="card">
       <h3>Calendar Sync</h3>
-      <p class="helpText">Paste your Google or Outlook calendar's <b>public ICS/webcal link</b> (Google Calendar → Settings → your calendar → "Secret address in iCal format"; Outlook → Calendar → Share → Publish a calendar → ICS link).</p>
+      <p class="helpText">Paste your Google or Outlook calendar's <b>public ICS/webcal link</b> (Google Calendar → Settings → your calendar → "Secret address in iCal format"; Outlook → Calendar → Share → Publish a calendar → ICS link). It re-syncs every time you open or refresh the app. For the most dependable syncing, set up the Cloudflare Worker URL in the card below — links are then fetched through it instead of a free public proxy.</p>
       ${state.feeds.map(f=>`
         <div class="settRow" style="flex-wrap:wrap">
           <input type="text" value="${escapeHtml(f.label)}" data-feedlabel="${f.id}" placeholder="Label" style="max-width:120px">
@@ -2615,7 +2764,8 @@ function settingsHTML(){
 
     <div class="card">
       <h3><span class="titleGroup"><span class="iconBadge" style="background:#e6f0ff;color:#2a5db0">📅</span>Google Calendar (direct connection)</span><span class="newTag">New</span></h3>
-      <p class="helpText">Connects straight to a Google account's calendar — no ICS link to copy/paste, and it re-syncs on its own. Needs a one-time setup (a small free Cloudflare Worker) — see the setup guide for the exact steps. This same Worker URL also powers the ✨ Quick Add box in the menu.</p>
+      <p class="helpText"><b>Signing in with Google already syncs your calendar</b> (read-only) — it refreshes whenever you open the app. Google's sign-in access lasts about an hour, after which the Calendar tab shows a one-tap "Refresh Google Calendar" link. ${validGcalToken()? '<span style="color:var(--good)">✅ Calendar access active on this device.</span>' : (gcalSignInWanted()? '⚠️ Access lapsed on this device.' : 'Not granted on this device yet.')} <a href="#" id="gcalSignInRefreshLink">Refresh / grant access now</a></p>
+      <p class="helpText">Want it to never need a refresh? Use the optional Cloudflare Worker below (one-time setup, see the guide). The same Worker URL also powers ✨ Quick Add.</p>
       <div class="field"><label>Cloudflare Worker URL</label><input type="url" id="gcalWorkerUrl" placeholder="https://your-worker-name.your-subdomain.workers.dev" value="${escapeHtml(state.settings.gcalWorkerUrl)}"></div>
       ${state.profiles.length? `<div class="field"><label>Tag these events as</label><select id="gcalProfileId">${state.profiles.map(p=>`<option value="${p.id}" ${p.id===state.settings.gcalProfileId?'selected':''}>${escapeHtml(p.name)}</option>`).join("")}</select></div>` : ''}
       <div class="field"><label>Calendar</label><input type="text" id="gcalCalendarId" value="${escapeHtml(state.settings.gcalCalendarId||'primary')}" title="Leave as 'primary' for the account's main calendar, or paste a specific calendar's ID from Google Calendar settings"></div>
@@ -2771,13 +2921,19 @@ function attachSettingsEvents(){
   });
 
   const gcalWorkerUrl=document.getElementById("gcalWorkerUrl");
-  if(gcalWorkerUrl) gcalWorkerUrl.addEventListener("change",()=>{ state.settings.gcalWorkerUrl=gcalWorkerUrl.value.trim(); saveState(); });
+  if(gcalWorkerUrl) gcalWorkerUrl.addEventListener("change",()=>{
+    state.settings.gcalWorkerUrl=gcalWorkerUrl.value.trim(); saveState();
+    // New Worker URL -> try the calendar feeds through it right away.
+    if(state.settings.gcalWorkerUrl && state.feeds.length) syncAllFeeds(false);
+  });
   const gcalProfileId=document.getElementById("gcalProfileId");
   if(gcalProfileId) gcalProfileId.addEventListener("change",()=>{ state.settings.gcalProfileId=gcalProfileId.value; saveState(); });
   const gcalCalendarId=document.getElementById("gcalCalendarId");
   if(gcalCalendarId) gcalCalendarId.addEventListener("change",()=>{ state.settings.gcalCalendarId=gcalCalendarId.value.trim()||"primary"; saveState(); });
   const gcalConnectBtn=document.getElementById("gcalConnectBtn");
   if(gcalConnectBtn) gcalConnectBtn.onclick=()=> connectGoogleCalendar();
+  const gcalSignInRefreshLink=document.getElementById("gcalSignInRefreshLink");
+  if(gcalSignInRefreshLink) gcalSignInRefreshLink.onclick=(e)=>{ e.preventDefault(); refreshGoogleCalendarAccess(); };
   const gcalSyncNowBtn=document.getElementById("gcalSyncNowBtn");
   if(gcalSyncNowBtn) gcalSyncNowBtn.onclick=()=> syncGoogleCalendarDirect(true);
   const gcalDisconnectBtn=document.getElementById("gcalDisconnectBtn");
@@ -3031,8 +3187,8 @@ function boot(){
   if(state.feeds.length){ syncAllFeeds(false); }
   setInterval(()=> syncAllFeeds(false), Math.max(5,state.settings.syncMinutes||20)*60*1000);
   const gcalHandledRedirect = handleGoogleCalendarRedirect();
-  if(state.settings.gcalConnected && !gcalHandledRedirect){ syncGoogleCalendarDirect(false); }
-  setInterval(()=> syncGoogleCalendarDirect(false), Math.max(5,state.settings.syncMinutes||20)*60*1000);
+  if(!gcalHandledRedirect){ syncGoogleCalendarAuto(false); }
+  setInterval(()=> syncGoogleCalendarAuto(false),Math.max(5,state.settings.syncMinutes||20)*60*1000);
   setInterval(checkIdleForScreensaver, 15000);
 }
 
@@ -3069,7 +3225,12 @@ function renderSignInScreen(){
   if(btn) btn.onclick = async ()=>{
     setAuthError("");
     const { auth, GoogleAuthProvider, signInWithPopup } = fb();
-    try{ await signInWithPopup(auth, new GoogleAuthProvider()); }
+    try{
+      const provider = new GoogleAuthProvider();
+      if(typeof provider.addScope==="function") provider.addScope(GCAL_SCOPE); // read-only calendar access, so the calendar syncs as soon as you're in
+      const result = await signInWithPopup(auth, provider);
+      storeGcalTokenFromResult(result);
+    }
     catch(e){ setAuthError("Sign-in failed: " + (e&&e.message?e.message:e)); }
   };
 }
