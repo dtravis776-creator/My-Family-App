@@ -34,7 +34,12 @@
   header{display:flex;align-items:center;justify-content:space-between;
     padding:16px max(24px, env(safe-area-inset-right)) 16px max(24px, env(safe-area-inset-left));
     background:var(--header);color:var(--headerInk);flex-shrink:0;}
+  #headerLeft{display:flex;align-items:center;gap:14px;min-width:0;}
+  #headerHomeBtn{flex-shrink:0;width:48px;height:48px;border-radius:50%;border:1px solid rgba(255,255,255,.3);
+    background:rgba(255,255,255,.14);color:#fff;font-size:24px;line-height:1;cursor:pointer;padding:0;}
+  #headerHomeBtn:hover,#headerHomeBtn:active{background:rgba(255,255,255,.28);}
   #clockBlock{min-width:220px;max-width:360px;}
+  @media (max-width:700px){ #clockBlock{min-width:0;} #headerHomeBtn{width:44px;height:44px;font-size:22px;} }
   #appName{font-size:15px;font-weight:700;color:#ffd9a8;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   #clockTime{font-size:34px;font-weight:700;line-height:1;font-family:var(--serif);}
   #clockDate{font-size:15px;color:#bcd8d4;margin-top:4px;}
@@ -422,10 +427,13 @@
 <div id="app">
 
   <header>
-    <div id="clockBlock">
-      <div id="appName">Hi there! 👋</div>
-      <div id="clockTime">--:--</div>
-      <div id="clockDate">Loading...</div>
+    <div id="headerLeft">
+      <button id="headerHomeBtn" type="button" aria-label="Go to Home" title="Home">🏠</button>
+      <div id="clockBlock">
+        <div id="appName">Hi there! 👋</div>
+        <div id="clockTime">--:--</div>
+        <div id="clockDate">Loading...</div>
+      </div>
     </div>
     <div id="weatherBlock"></div>
     <div id="countdownChip">No countdown set</div>
@@ -1529,6 +1537,11 @@ document.getElementById("mainNav").addEventListener("click", e=>{
   goToTab(btn.dataset.tab);
 });
 document.getElementById("navAiBtn").addEventListener("click", ()=>{ closeNavMenu(); openAIQuickAdd(); });
+// One-tap way home from anywhere: the 🏠 button in the header.
+document.getElementById("headerHomeBtn").addEventListener("click", ()=>{
+  goToTab("home");
+  window.scrollTo(0,0);
+});
 
 function renderTab(){
   const main=document.getElementById("main");
