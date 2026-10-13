@@ -652,7 +652,10 @@ function loadState(){
   return defaultState();
 }
 function saveState(){
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  // localStorage can be full (photos are big). Never let that stop the cloud
+  // push or crash the app -- say so instead.
+  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+  catch(e){ reportCloudStatus(false, "This device's storage is full, so changes can't be saved here ("+(e&&e.message?e.message:e)+"). Delete some photos in Settings."); }
   // If signed in and part of a household, also push to Firestore (debounced
   // so rapid edits don't spam the network) so other devices stay in sync.
   if(householdCode && !applyingRemoteUpdate && window.__firebase){
@@ -660,13 +663,165 @@ function saveState(){
     window.__remoteWriteTimer = setTimeout(pushStateToCloud, 800);
   }
 }
-function pushStateToCloud(){
+
+/* =========================================================================
+   CLOUD SYNC SAFETY
+   What went wrong before ("everything I did yesterday is gone"):
+   1. The whole app state -- including every screensaver photo and receipt
+      photo -- was written to ONE Firestore document, which has a hard size
+      limit (about 1 MB). Once photos pushed it over, every cloud write was
+      rejected with only a quiet console warning. Nothing reached the cloud;
+      the next reload then loaded the OLD cloud copy over the newer local
+      data. Photos are now kept on-device only, and a failed sync shows a
+      visible warning instead of failing silently.
+   2. Every device wrote its whole state on every save, so a tablet that had
+      been asleep could push its stale copy over newer data from a phone.
+      Now a device only writes the pieces it actually changed (and ticks are
+      written one tick at a time), and edits that haven't reached the cloud
+      yet are never overwritten by an older cloud copy.
+   ========================================================================= */
+const LOG_KEYS = ["choreLog","routineLog"]; // objects of tick-key -> true/false
+let cloudBase = {};      // top-level key -> hash of the value last known to be in the cloud
+let cloudLogSnap = {};   // for LOG_KEYS: copy of the cloud's entries as last seen
+let cloudPushInFlight = false, cloudPushQueued = false;
+function stable(v){
+  if(Array.isArray(v)) return "["+v.map(stable).join(",")+"]";
+  if(v && typeof v==="object"){ return "{"+Object.keys(v).filter(k=>v[k]!==undefined).sort().map(k=>JSON.stringify(k)+":"+stable(v[k])).join(",")+"}"; }
+  return JSON.stringify(v===undefined?null:v);
+}
+function hashStr(str){ let h=5381; for(let i=0;i<str.length;i++){ h=((h<<5)+h+str.charCodeAt(i))|0; } return h+":"+str.length; }
+function cloudBaseKey(code){ return "kitchenCalendarCloudBase_"+code; }
+function loadCloudBase(code){ try{ cloudBase = JSON.parse(localStorage.getItem(cloudBaseKey(code))||"{}"); }catch(e){ cloudBase = {}; } cloudLogSnap = {}; }
+function persistCloudBase(){ try{ if(householdCode) localStorage.setItem(cloudBaseKey(householdCode), JSON.stringify(cloudBase)); }catch(e){} }
+// What actually goes to the cloud: everything except device-local photos
+// (screensaver photos and receipt images stay on the device that has them).
+function cloudShape(s){
+  const o = Object.assign({}, s);
+  delete o.photos;
+  if(o.budget && Array.isArray(o.budget.transactions)){
+    o.budget = Object.assign({}, o.budget, { transactions: o.budget.transactions.map(t=> (t && t.receiptPhoto) ? Object.assign({}, t, { receiptPhoto:null }) : t) });
+  }
+  return o;
+}
+// After adopting the cloud's copy, put back what only this device has.
+function restoreLocalOnly(merged){
+  merged.photos = state.photos;
+  const local = {};
+  ((state.budget && state.budget.transactions)||[]).forEach(t=>{ if(t && t.receiptPhoto) local[t.id] = t.receiptPhoto; });
+  if(merged.budget && Array.isArray(merged.budget.transactions) && Object.keys(local).length){
+    // copy, so the cloud snapshot object we remembered is never modified
+    merged.budget = Object.assign({}, merged.budget, { transactions: merged.budget.transactions.map(t=> (t && local[t.id] && !t.receiptPhoto) ? Object.assign({}, t, { receiptPhoto: local[t.id] }) : t) });
+  }
+  return merged;
+}
+function rememberCloud(remote){
+  Object.keys(remote||{}).forEach(k=>{
+    if(LOG_KEYS.includes(k)) cloudLogSnap[k] = JSON.parse(JSON.stringify(remote[k]||{}));
+    else cloudBase[k] = hashStr(stable(remote[k]));
+  });
+  persistCloudBase();
+}
+function unionLogs(a, b){
+  const out = Object.assign({}, a||{});
+  Object.keys(b||{}).forEach(k=>{ if(b[k]) out[k] = b[k]; else if(!(k in out)) out[k] = b[k]; });
+  return out;
+}
+// Combine the cloud's copy with edits made on this device that haven't
+// reached the cloud yet, so an older/other copy never silently wins.
+function reconcileWithLocal(merged, remote, firstLoad){
+  const lshape = cloudShape(state);
+  Object.keys(lshape).forEach(k=>{
+    if(!(k in remote)){ merged[k] = state[k]; return; } // cloud doesn't have this yet: keep ours
+    if(LOG_KEYS.includes(k)){
+      const snap = cloudLogSnap[k];
+      if(snap===undefined){ merged[k] = firstLoad ? unionLogs(remote[k], state[k]) : remote[k]; return; }
+      const out = Object.assign({}, remote[k]||{}), cur = state[k]||{};
+      new Set(Object.keys(cur).concat(Object.keys(snap))).forEach(e=>{
+        if(((cur[e]||false)) !== ((snap[e]||false))) out[e] = (e in cur) ? cur[e] : false; // unsent tick/untick on this device
+      });
+      merged[k] = out;
+      return;
+    }
+    const rH = hashStr(stable(remote[k])), lH = hashStr(stable(lshape[k]));
+    if(rH===lH) return;
+    const base = cloudBase[k];
+    if(base===undefined) return;               // no history: adopt the cloud copy (old behaviour)
+    const remoteChanged = rH!==base, localChanged = lH!==base;
+    if(!remoteChanged && localChanged) merged[k] = state[k];            // our unsent edit; cloud copy is just stale
+    else if(remoteChanged && localChanged && firstLoad) merged[k] = state[k]; // both edited: keep ours, it gets pushed
+  });
+  return merged;
+}
+function reportCloudStatus(ok, msg){
+  let el = document.getElementById("cloudWarn");
+  if(ok){ if(el) el.remove(); return; }
+  if(!el){
+    el = document.createElement("div"); el.id = "cloudWarn";
+    el.style.cssText = "position:fixed;left:12px;right:12px;bottom:12px;z-index:9999;background:#fff3cd;color:#664d03;border:1px solid #e0c36a;border-radius:12px;padding:10px 14px;font-size:14px;box-shadow:0 4px 14px rgba(0,0,0,.2)";
+    document.body.appendChild(el);
+  }
+  el.innerHTML = '⚠️ <b>Changes are not syncing to your household.</b> They are saved on this device. <span id="cloudWarnMsg"></span> <a href="#" id="cloudWarnRetry" style="font-weight:700">Retry now</a>';
+  document.getElementById("cloudWarnMsg").textContent = msg ? "("+msg+")" : "";
+  document.getElementById("cloudWarnRetry").onclick = (e)=>{ e.preventDefault(); pushStateToCloud(); };
+}
+async function pushStateToCloud(){
   clearTimeout(window.__remoteWriteTimer);
   window.__remoteWriteTimer = null;
-  if(!householdCode || !window.__firebase) return;
-  const { db, doc, setDoc } = window.__firebase;
-  setDoc(doc(db, "households", householdCode, "data", "state"), state)
-    .catch(e=> console.warn("Cloud sync failed, change is still saved locally:", e));
+  if(!householdCode || !window.__firebase || !householdDataLoaded) return;
+  if(cloudPushInFlight){ cloudPushQueued = true; return; }
+  const { db, doc } = window.__firebase;
+  const setDocFn = window.__firebase.setDoc, updateDocFn = window.__firebase.updateDoc;
+  const ref = doc(db, "households", householdCode, "data", "state");
+  const shape = cloudShape(state);
+  const update = {}, pending = [];
+  Object.keys(shape).forEach(k=>{
+    if(LOG_KEYS.includes(k)){
+      const cur = shape[k]||{}, snap = cloudLogSnap[k];
+      if(snap===undefined){ if(Object.keys(cur).length){ update[k] = cur; pending.push({k, log:true}); } return; }
+      const ents = Array.from(new Set(Object.keys(cur).concat(Object.keys(snap))));
+      const diff = ents.filter(e=> (cur[e]||false) !== (snap[e]||false));
+      if(!diff.length) return;
+      if(ents.every(e=>/^[A-Za-z0-9_-]+$/.test(e))) diff.forEach(e=>{ update[k+"."+e] = (e in cur) ? !!cur[e] : false; });
+      else update[k] = cur;
+      pending.push({k, log:true});
+    }else if(hashStr(stable(shape[k])) !== cloudBase[k]){
+      update[k] = shape[k]; pending.push({k});
+    }
+  });
+  // Older versions pushed device photos up into the shared document, which
+  // is what eventually overflowed its size limit. Clear them out of the cloud
+  // copy (each device keeps its own photos locally).
+  if(cloudBase.photos !== undefined && cloudBase.photos !== hashStr(stable([]))){ update.photos = []; pending.push({k:"photos", empty:true}); }
+  if(!Object.keys(update).length){ reportCloudStatus(true); return; }
+  const clean = JSON.parse(JSON.stringify(update));
+  cloudPushInFlight = true;
+  const markDone = ()=>{
+    pending.forEach(p=>{
+      if(p.empty) cloudBase[p.k] = hashStr(stable([]));
+      else if(p.log) cloudLogSnap[p.k] = JSON.parse(JSON.stringify(shape[p.k]||{}));
+      else cloudBase[p.k] = hashStr(stable(shape[p.k]));
+    });
+    persistCloudBase();
+    reportCloudStatus(true);
+  };
+  try{
+    try{
+      if(typeof updateDocFn==="function") await updateDocFn(ref, clean);
+      else { await setDocFn(ref, JSON.parse(JSON.stringify(shape))); }
+    }catch(e){
+      if(e && e.code==="not-found") await setDocFn(ref, JSON.parse(JSON.stringify(shape)));
+      else throw e;
+    }
+    markDone();
+  }catch(e){
+    console.warn("Cloud sync failed, change is still saved locally:", e);
+    reportCloudStatus(false, (e && (e.message||e.code)) ? String(e.message||e.code).slice(0,140) : "");
+    clearTimeout(window.__remoteRetryTimer);
+    window.__remoteRetryTimer = setTimeout(pushStateToCloud, 30000);
+  }finally{
+    cloudPushInFlight = false;
+    if(cloudPushQueued){ cloudPushQueued = false; setTimeout(pushStateToCloud, 50); }
+  }
 }
 // If the tablet/tab is closed or backgrounded right after an edit (e.g.
 // typing a meal then immediately switching tabs), make sure that edit
@@ -3323,7 +3478,7 @@ async function createHousehold(){
     await setDoc(doc(db,"households",code,"meta","info"), {
       members:[currentUser.uid], createdAt:serverTimestamp(), createdBy:currentUser.uid
     });
-    await setDoc(doc(db,"households",code,"data","state"), state);
+    await setDoc(doc(db,"households",code,"data","state"), JSON.parse(JSON.stringify(cloudShape(state))));
     await setDoc(doc(db,"users",currentUser.uid), { householdCode:code, email:currentUser.email||null }, { merge:true });
     householdCode=code;
     attachHouseholdListener();
@@ -3356,6 +3511,7 @@ async function joinHousehold(code){
 
 function attachHouseholdListener(){
   renderLoadingScreen("Loading your family's calendar…");
+  loadCloudBase(householdCode);
   const { db, doc, onSnapshot } = fb();
   if(householdUnsub){ householdUnsub(); householdUnsub=null; }
   householdUnsub = onSnapshot(doc(db,"households",householdCode,"data","state"), (snap)=>{
@@ -3367,11 +3523,9 @@ function attachHouseholdListener(){
     const merged=Object.assign(defaultState(), remote);
     merged.settings=Object.assign(defaultState().settings, remote.settings||{});
     merged.budget=Object.assign(defaultState().budget, remote.budget||{});
-    // Photos are deliberately device-local (never written to Firestore),
-    // so keep whatever this device already has instead of wiping them out.
-    merged.photos = state.photos;
     migrateChoreDates(merged);
     migrateBudget(merged);
+    const firstLoad = !householdDataLoaded;
 
     if(!householdDataLoaded){
       householdDataLoaded=true;
@@ -3390,24 +3544,37 @@ function attachHouseholdListener(){
         return;
       }
 
+      // Keep any edits this device made that never reached the cloud (e.g. a
+      // failed/interrupted sync) instead of letting the older cloud copy win.
+      reconcileWithLocal(merged, remote, true);
+      rememberCloud(remote);
+      restoreLocalOnly(merged);
       applyingRemoteUpdate=true;
       state=merged;
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }catch(e){}
       applyingRemoteUpdate=false;
       markHouseholdLinked(householdCode);
       startApp(); // decides: boot straight in, or show the family-setup screen first
+      setTimeout(pushStateToCloud, 300); // send up anything the cloud was missing
       return;
     }
 
     // Firestore echoes every write back through this same listener —
     // including the ones THIS device just made. Skip anything that's not
     // an actual change so a normal edit doesn't trigger a needless re-render.
-    if(JSON.stringify(merged) === JSON.stringify(state)) return;
+    reconcileWithLocal(merged, remote, false);
+    rememberCloud(remote);
+    restoreLocalOnly(merged);
+    if(JSON.stringify(merged) === JSON.stringify(state)){
+      setTimeout(pushStateToCloud, 300);
+      return;
+    }
 
     applyingRemoteUpdate=true;
     state=merged;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }catch(e){}
     applyingRemoteUpdate=false;
+    setTimeout(pushStateToCloud, 300);
 
     if(!appBooted){
       // Still on a blocking screen (e.g. the family-setup step) — don't
@@ -3471,8 +3638,11 @@ function renderSyncConflictScreen(){
   const useCloudBtn=document.getElementById("syncConflictUseCloudBtn");
   if(useCloudBtn) useCloudBtn.onclick=()=>{
     applyingRemoteUpdate=true;
+    const keepPhotos = state.photos;
     state = pendingRemoteState;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    state.photos = keepPhotos;
+    rememberCloud(state);
+    try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }catch(e){}
     applyingRemoteUpdate=false;
     pendingRemoteState=null;
     markHouseholdLinked(householdCode);
@@ -3481,10 +3651,12 @@ function renderSyncConflictScreen(){
   const keepLocalBtn=document.getElementById("syncConflictKeepLocalBtn");
   if(keepLocalBtn) keepLocalBtn.onclick=()=>{
     pendingRemoteState=null;
-    // Push this device's current state up right away, rather than waiting
-    // for the next edit to trigger a debounced save.
-    pushStateToCloud();
+    // "Keep this device's data" = overwrite the cloud copy with this device's.
+    // Forget what we knew of the cloud so everything gets written up.
+    cloudBase = {}; cloudLogSnap = {};
+    householdDataLoaded = true;
     markHouseholdLinked(householdCode);
+    pushStateToCloud();
     startApp();
   };
 }
