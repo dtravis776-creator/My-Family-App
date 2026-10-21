@@ -181,6 +181,15 @@
   .weekNavRow .smallBtn{font-size:18px;padding:2px 10px;}
   .choreReschedule{width:100%;display:flex;align-items:center;gap:8px;margin-top:2px;padding-left:36px;flex-wrap:wrap;}
   .choreReschedule .miniBtn{padding:5px 10px;font-size:12px;}
+  /* Repeat-on-days chips + optional end date */
+  .choreSchedule{width:100%;display:flex;align-items:center;gap:8px;margin-top:2px;padding-left:36px;flex-wrap:wrap;font-size:12px;color:var(--muted);}
+  .dowChips{display:flex;gap:4px;flex-wrap:wrap;}
+  .dowChip{width:30px;height:30px;border-radius:50%;border:1px solid var(--line);background:#fff;color:var(--ink);font-size:12px;font-weight:600;cursor:pointer;padding:0;line-height:1;}
+  .dowChip.on{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .choreSchedule input[type="date"],.newChoreSchedule input[type="date"]{max-width:150px;padding:5px 8px;border:1px solid var(--line);border-radius:8px;font-size:12px;}
+  .newChoreSchedule{width:100%;display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;color:var(--muted);}
+  .endedChores{margin-top:10px;font-size:13px;}
+  .endedChores summary{cursor:pointer;color:var(--muted);}
   .choreReschedule input[type="date"]{max-width:150px;padding:5px 8px;border:1px solid var(--line);border-radius:8px;font-size:12px;}
 
   /* ---------- BUDGET ---------- */
@@ -2044,13 +2053,30 @@ function starBalanceOf(profileId){ return state.starBalance[profileId]||0; }
 // apply every day; one-time ones only apply on the specific day they're
 // scheduled for (falling back to today if somehow still missing a date --
 // see migrateChoreDates, which normally backfills this on load).
-function choresForDay(profileId, dateISO){
+function choreAppliesOn(c, dateISO){
   const todayISO = isoDate(new Date());
-  return state.chores.filter(c=>{
-    if(c.profileId!==profileId) return false;
-    if(c.recurring !== false) return true; // recurring (or legacy/unset) -> every day
-    return (c.date || todayISO) === dateISO;
-  });
+  if(c.recurring === false) return (c.date || todayISO) === dateISO;
+  // Recurring (or legacy/unset): every day, unless specific weekdays were
+  // picked (c.days = [0..6], 0=Sunday) and/or an end date was set.
+  if(c.endDate && dateISO > c.endDate) return false;
+  if(Array.isArray(c.days) && c.days.length){
+    const dow = new Date(dateISO+"T00:00:00").getDay();
+    if(!c.days.includes(dow)) return false;
+  }
+  return true;
+}
+function choresForDay(profileId, dateISO){
+  return state.chores.filter(c=> c.profileId===profileId && choreAppliesOn(c, dateISO));
+}
+// "Mon · Wed · Fri" / "Daily" -- used on the chore badge.
+function choreRepeatLabel(c){
+  const days = Array.isArray(c.days) ? c.days.slice().sort((a,b)=>a-b) : [];
+  if(!days.length || days.length===7) return "Daily";
+  return days.map(d=>DOW[d]).join(" · ");
+}
+function dowChipsHTML(attr, key, selected){
+  const letters=["S","M","T","W","T","F","S"];
+  return `<div class="dowChips" role="group" aria-label="Repeat on these days">${letters.map((l,i)=>`<button type="button" class="dowChip ${selected.includes(i)?'on':''}" ${attr}="${key}|${i}" aria-pressed="${selected.includes(i)}" title="${DOW[i]}">${l}</button>`).join("")}</div>`;
 }
 function choresDoneToday(profileId){
   const todayISO = isoDate(new Date());
@@ -2116,7 +2142,7 @@ function choresHTML(){
           <input type="text" class="editableText rowText ${done?'done':''}" data-chorename="${c.id}" value="${escapeHtml(c.name)}">
           <label class="recurToggle" title="Repeats every day, rather than being a one-time task">
             <input type="checkbox" data-chorerecur="${c.id}" ${isRecurring?'checked':''}>
-            <span>${isRecurring?'🔁 Daily':'One-time'}</span>
+            <span>${isRecurring?'🔁 '+choreRepeatLabel(c):'One-time'}</span>
           </label>
           <button class="smallBtn" data-delchore="${c.id}">✕</button>
           <div class="choreReschedule">
@@ -2124,17 +2150,38 @@ function choresHTML(){
             <input type="date" data-choremove="${c.id}" value="${c.date||viewDate}" title="${isRecurring? 'Editable date for this chore' : 'Editable due date -- move this task to any day'}">
             ${(!isRecurring && !done) ? `<button class="miniBtn" data-pushtomorrow="${c.id}|${viewDate}">➜ Tomorrow</button>` : ''}
           </div>
+          ${isRecurring ? `<div class="choreSchedule">
+            <span>Repeats on:</span>${dowChipsHTML("data-choredow", c.id, Array.isArray(c.days)?c.days:[])}
+            <span>${(Array.isArray(c.days)&&c.days.length&&c.days.length<7)?'':'(none picked = every day)'}</span>
+            <span style="margin-left:6px">Ends:</span>
+            <input type="date" data-choreend="${c.id}" value="${c.endDate||''}" title="Optional last day. Leave blank to repeat until you change or remove it.">
+            <span>${c.endDate?'':'(blank = never)'}</span>
+          </div>` : ''}
         </div>`;
       }).join("") || `<p style="color:var(--muted);font-size:13px">No chores for ${viewDate===todayISO?'today':'this day'} yet.</p>`}
       <div class="addLine" style="flex-wrap:wrap">
         <input type="text" placeholder="New chore..." data-newchore="${p.id}">
-        <label class="recurToggle" title="Repeats every day, rather than being a one-time task">
+        <label class="recurToggle" title="Repeating chore (on) or a one-time task (off)">
           <input type="checkbox" data-newchorerecur="${p.id}" checked>
           <span data-newchorerecurlabel="${p.id}">🔁 Daily</span>
         </label>
-        <input type="date" data-newchoredate="${p.id}" value="${viewDate}" title="Due date (used when 'Daily' is unchecked, i.e. a one-time task)">
+        <input type="date" data-newchoredate="${p.id}" value="${viewDate}" style="display:none" title="Due date for a one-time task">
         <button data-addchorebtn="${p.id}">Add</button>
+        <div class="newChoreSchedule" data-newchoreschedule="${p.id}">
+          <span>Repeats on:</span>${dowChipsHTML("data-newchoredow", p.id, [])}
+          <span>Ends:</span><input type="date" data-newchoreend="${p.id}" title="Optional last day. Leave blank to repeat until you change or remove it.">
+          <span>Leave days empty for every day; leave the end date blank to repeat forever.</span>
+        </div>
       </div>
+      ${(()=>{
+        const ended = state.chores.filter(c=> c.profileId===p.id && c.recurring!==false && c.endDate && c.endDate < todayISO);
+        if(!ended.length) return "";
+        return `<details class="endedChores"><summary>Ended repeating chores (${ended.length})</summary>${ended.map(c=>`<div class="choreRow">
+          <div class="rowText">${escapeHtml(c.name)} <span class="helpText">· ended ${escapeHtml(c.endDate)}</span></div>
+          <input type="date" data-choreend="${c.id}" value="${c.endDate}" title="Change the end date (clear it to bring this chore back)" style="max-width:150px;padding:5px 8px;border:1px solid var(--line);border-radius:8px;font-size:12px">
+          <button class="smallBtn" data-delchore="${c.id}">✕</button>
+        </div>`).join("")}</details>`;
+      })()}
 
       <div class="routinesSection">
         <h4>🔁 Routines <span style="font-weight:400;font-size:12px;color:var(--muted);text-transform:none">— ${viewDate===todayISO?'today':escapeHtml(viewLabel)}</span></h4>
@@ -2268,13 +2315,52 @@ function attachChoreEvents(){
     });
   });
 
-  // Toggle the "🔁 Daily" / "One-time" label on the add-chore row live as
-  // the checkbox changes, same as the per-chore toggle already does.
-  document.querySelectorAll("[data-newchorerecur]").forEach(cb=>{
-    cb.addEventListener("change", ()=>{
-      const label=document.querySelector(`[data-newchorerecurlabel="${cb.dataset.newchorerecur}"]`);
-      if(label) label.textContent = cb.checked ? "🔁 Daily" : "One-time";
+  // Weekday chips + end date on an existing repeating chore.
+  document.querySelectorAll("[data-choredow]").forEach(btn=> btn.onclick=()=>{
+    const [choreId, dowStr] = btn.dataset.choredow.split("|");
+    const chore = state.chores.find(c=>c.id===choreId); if(!chore) return;
+    const dow = parseInt(dowStr,10);
+    const days = new Set(Array.isArray(chore.days)?chore.days:[]);
+    if(days.has(dow)) days.delete(dow); else days.add(dow);
+    chore.days = Array.from(days).sort((a,b)=>a-b);
+    saveState();
+    // Update in place instead of re-rendering: if the day being viewed just
+    // stopped being one of the chore's days, a re-render would make the row
+    // vanish mid-edit (before the next day could be tapped). It drops off
+    // that day's list the next time the screen refreshes.
+    btn.classList.toggle("on", days.has(dow));
+    btn.setAttribute("aria-pressed", days.has(dow));
+    const badge = btn.closest(".choreRow") && btn.closest(".choreRow").querySelector(".recurToggle span");
+    if(badge) badge.textContent = "🔁 " + choreRepeatLabel(chore);
+  });
+  document.querySelectorAll("[data-choreend]").forEach(inp=>{
+    inp.addEventListener("change", ()=>{
+      const chore = state.chores.find(c=>c.id===inp.dataset.choreend); if(!chore) return;
+      chore.endDate = inp.value || null; // blank = repeat forever
+      saveState(); renderTab();
     });
+  });
+
+  // On the add-chore row: the "🔁 Daily" / "One-time" toggle also swaps
+  // between the repeat options (weekday chips + end date) and the one-time
+  // due date, and the weekday chips toggle on tap.
+  function syncNewChoreRepeatLabel(pid){
+    const cb=document.querySelector(`[data-newchorerecur="${pid}"]`); if(!cb) return;
+    const label=document.querySelector(`[data-newchorerecurlabel="${pid}"]`);
+    const picked=Array.from(document.querySelectorAll(`[data-newchoredow^="${pid}|"].on`)).map(b=>parseInt(b.dataset.newchoredow.split("|")[1],10)).sort((a,b)=>a-b);
+    if(label) label.textContent = cb.checked ? "🔁 " + (picked.length && picked.length<7 ? picked.map(d=>DOW[d]).join(" · ") : "Daily") : "One-time";
+    const sched=document.querySelector(`[data-newchoreschedule="${pid}"]`);
+    const dateInp=document.querySelector(`[data-newchoredate="${pid}"]`);
+    if(sched) sched.style.display = cb.checked ? "" : "none";
+    if(dateInp) dateInp.style.display = cb.checked ? "none" : "";
+  }
+  document.querySelectorAll("[data-newchorerecur]").forEach(cb=>{
+    cb.addEventListener("change", ()=> syncNewChoreRepeatLabel(cb.dataset.newchorerecur));
+  });
+  document.querySelectorAll("[data-newchoredow]").forEach(btn=> btn.onclick=()=>{
+    btn.classList.toggle("on");
+    btn.setAttribute("aria-pressed", btn.classList.contains("on"));
+    syncNewChoreRepeatLabel(btn.dataset.newchoredow.split("|")[0]);
   });
 
   document.querySelectorAll("[data-addchorebtn]").forEach(btn=> btn.onclick=()=>{
@@ -2285,7 +2371,19 @@ function attachChoreEvents(){
     const name=input.value.trim(); if(!name) return;
     const chosenDate = (dateInput && dateInput.value) || isoDate(new Date());
     const recurring = recurCheckbox ? recurCheckbox.checked : true;
-    state.chores.push({id:"c_"+Date.now(), name, profileId:pid, frequency:"daily", recurring, date:chosenDate});
+    const chore = {id:"c_"+Date.now(), name, profileId:pid, frequency:"daily", recurring, date:chosenDate};
+    if(recurring){
+      const days = Array.from(document.querySelectorAll(`[data-newchoredow^="${pid}|"].on`)).map(b=>parseInt(b.dataset.newchoredow.split("|")[1],10)).sort((a,b)=>a-b);
+      chore.days = (days.length===7) ? [] : days;           // [] = every day
+      const endInput = document.querySelector(`[data-newchoreend="${pid}"]`);
+      const endDate = endInput && endInput.value ? endInput.value : null;
+      if(endDate && endDate < isoDate(new Date())){
+        alert("That end date has already passed — pick a later date, or leave it blank to repeat until you remove it.");
+        return;
+      }
+      chore.endDate = endDate; // null = repeats until changed or removed
+    }
+    state.chores.push(chore);
     saveState(); renderTab();
     const freshInput=document.querySelector(`[data-newchore="${pid}"]`);
     if(freshInput) freshInput.focus();
