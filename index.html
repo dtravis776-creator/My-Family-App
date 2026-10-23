@@ -175,6 +175,12 @@
   .itemMoveBtns{display:flex;flex-direction:column;flex-shrink:0;}
   .itemMoveBtns button{font-size:11px;line-height:1;padding:3px 6px;color:var(--muted);}
   .itemMoveBtns button:disabled{opacity:.25;cursor:default;}
+  /* Drag handle for reordering list items (mouse + touch) */
+  .dragHandle{flex-shrink:0;width:28px;height:34px;display:flex;align-items:center;justify-content:center;color:var(--muted);
+    font-size:18px;line-height:1;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;border-radius:8px;}
+  .dragHandle:hover{background:rgba(0,0,0,.06);}
+  .itemRow.dragging{position:relative;z-index:50;background:#fff;box-shadow:0 8px 22px rgba(0,0,0,.22);border-radius:10px;opacity:.97;cursor:grabbing;}
+  body.isDraggingItem{user-select:none;-webkit-user-select:none;cursor:grabbing;}
   .recurToggle{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted);white-space:nowrap;flex-shrink:0;cursor:pointer;}
   .recurToggle input{margin:0;}
   .weekNavRow{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;}
@@ -2442,7 +2448,8 @@ function listsHTML(){
     <div class="card">
       <h3><input type="text" class="editableText editableTitle" style="color:${l.color}" data-listname="${l.id}" value="${escapeHtml(l.name)}"><button class="smallBtn" data-dellist="${l.id}">Delete list</button></h3>
       ${l.items.map((it,idx)=>`
-        <div class="itemRow">
+        <div class="itemRow" data-itemrow="${l.id}|${it.id}">
+          <div class="dragHandle" data-draghandle="${l.id}|${it.id}" title="Drag to reorder" aria-label="Drag to reorder">⠿</div>
           <div class="checkBox ${it.done?'done':''}" data-item="${l.id}|${it.id}">${it.done?'✓':''}</div>
           <input type="text" class="editableText rowText ${it.done?'done':''}" data-itemtext="${l.id}|${it.id}" value="${escapeHtml(it.text)}">
           <div class="itemMoveBtns">
@@ -2462,7 +2469,97 @@ function listsHTML(){
       </div>`
     + `</div>`;
 }
+/* ---- Drag and drop reordering of list items ----
+   Grab the ⠿ handle and drag the item up or down; it works with a finger or a
+   mouse (pointer events). The row follows the pointer, neighbours make room as
+   you cross them, and the new order is saved when you let go. The ▲ ▼ buttons
+   still work too. */
+// Which slot (0-based, among the OTHER rows) the dragged row should occupy,
+// given the vertical midpoints of those other rows (top to bottom) and the
+// pointer's Y position.
+function dragTargetIndex(otherMidpoints, y){
+  let idx = 0;
+  for(const m of otherMidpoints){ if(y > m) idx++; else break; }
+  return idx;
+}
+// Re-sort a list's items to match an ordered array of ids (unknown ids are
+// ignored; any item not mentioned keeps its relative place at the end).
+function reorderListItems(list, orderedIds){
+  const byId = new Map(list.items.map(i=>[i.id, i]));
+  const next = [];
+  orderedIds.forEach(id=>{ if(byId.has(id)){ next.push(byId.get(id)); byId.delete(id); } });
+  list.items.forEach(i=>{ if(byId.has(i.id)) next.push(i); });
+  list.items = next;
+}
+function attachListDragEvents(){
+  document.querySelectorAll("[data-draghandle]").forEach(handle=>{
+    handle.addEventListener("pointerdown", (e)=>{
+      if(e.button!==undefined && e.button!==0) return; // left button / touch only
+      const [lid, iid] = handle.dataset.draghandle.split("|");
+      const row = handle.closest(".itemRow"); if(!row) return;
+      const card = row.parentElement;
+      const rowsOf = ()=> Array.from(card.querySelectorAll(`.itemRow[data-itemrow^="${lid}|"]`));
+      const startRect = row.getBoundingClientRect();
+      const grabOffsetY = e.clientY - startRect.top;
+      const scroller = document.getElementById("main");
+      e.preventDefault();
+      row.classList.add("dragging");
+      document.body.classList.add("isDraggingItem");
+      try{ if(typeof handle.setPointerCapture==="function" && e.pointerId!==undefined) handle.setPointerCapture(e.pointerId); }catch(_){}
+
+      function place(clientY){
+        const others = rowsOf().filter(r=>r!==row);
+        const mids = others.map(r=>{ const b=r.getBoundingClientRect(); return b.top + b.height/2; });
+        // Compare the dragged row's centre (not the raw pointer) to the others.
+        const h = row.getBoundingClientRect().height || startRect.height || 0;
+        const centre = clientY - grabOffsetY + h/2;
+        const target = dragTargetIndex(mids, centre);
+        const currentIdx = rowsOf().indexOf(row);
+        if(target !== currentIdx){
+          const ref = others[target] || null;      // insert before this row (null = at the end)
+          if(ref) card.insertBefore(row, ref);
+          else { const last = others[others.length-1]; if(last) last.after(row); }
+        }
+        // Keep the row glued to the pointer.
+        row.style.transform = "";
+        const natural = row.getBoundingClientRect().top;
+        row.style.transform = `translateY(${clientY - grabOffsetY - natural}px)`;
+      }
+      function onMove(ev){
+        place(ev.clientY);
+        // Nudge the page when dragging near the top/bottom edge.
+        if(scroller && scroller.scrollHeight > scroller.clientHeight){
+          const r = scroller.getBoundingClientRect();
+          if(ev.clientY < r.top + 50) scroller.scrollTop -= 14;
+          else if(ev.clientY > r.bottom - 50) scroller.scrollTop += 14;
+        }
+      }
+      function cleanup(){
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        window.removeEventListener("pointercancel", onCancel);
+        document.body.classList.remove("isDraggingItem");
+      }
+      function onUp(){
+        cleanup();
+        const list = state.lists.find(l=>l.id===lid);
+        if(list && row.isConnected){
+          const order = rowsOf().map(r=> r.dataset.itemrow.split("|")[1]);
+          const before = list.items.map(i=>i.id).join(",");
+          reorderListItems(list, order);
+          if(list.items.map(i=>i.id).join(",") !== before) saveState();
+        }
+        renderTab();
+      }
+      function onCancel(){ cleanup(); renderTab(); }
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointercancel", onCancel);
+    });
+  });
+}
 function attachListEvents(){
+  attachListDragEvents();
   document.querySelectorAll("[data-item]").forEach(el=> el.onclick=()=>{
     const [lid,iid]=el.dataset.item.split("|");
     const list=state.lists.find(l=>l.id===lid); const item=list.items.find(i=>i.id===iid);
