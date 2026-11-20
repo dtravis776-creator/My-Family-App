@@ -1707,6 +1707,55 @@ document.getElementById("mainNav").addEventListener("click", e=>{
   goToTab(btn.dataset.tab);
 });
 document.getElementById("navAiBtn").addEventListener("click", ()=>{ closeNavMenu(); openAIQuickAdd(); });
+/* ---- Swipe left/right to move between screens ----
+   Swipe left = next screen, swipe right = previous, in the same order as the
+   menu (Home, Calendar, Chores, Lists, Meals, Budget, Settings). Ignored when
+   it would get in the way: while typing, inside pop-ups, while dragging a
+   list item, on the sign-in screens, or inside anything that scrolls sideways
+   (like the week view), so those keep working normally. */
+function tabOrder(){ return Array.from(document.querySelectorAll("#mainNav button[data-tab]")).map(b=>b.dataset.tab); }
+function swipeToNeighborTab(direction){ // +1 = next, -1 = previous
+  const order = tabOrder();
+  const i = order.indexOf(currentTab);
+  const next = order[i + direction];
+  if(i < 0 || !next) return false;
+  goToTab(next);
+  window.scrollTo(0,0);
+  const main = document.getElementById("main");
+  if(main){ main.scrollTop = 0; try{ main.animate([{opacity:.4, transform:`translateX(${direction*28}px)`},{opacity:1, transform:"translateX(0)"}], {duration:180, easing:"ease-out"}); }catch(_){} }
+  return true;
+}
+function swipeShouldBeIgnored(target){
+  if(!(target instanceof Element)) return true;
+  if(target.closest("input, textarea, select, [contenteditable], .dragHandle, .overlay, #authGate, #screensaverOverlay, #mainNav, #navFab")) return true;
+  if(document.body.classList.contains("isDraggingItem")) return true;
+  const authGate = document.getElementById("authGate");
+  if(authGate && authGate.style.display === "flex") return true;
+  // inside something that scrolls sideways?
+  for(let el = target; el && el.id !== "main" && el !== document.body; el = el.parentElement){
+    const ox = getComputedStyle(el).overflowX;
+    if((ox === "auto" || ox === "scroll") && el.scrollWidth > el.clientWidth + 2) return true;
+  }
+  return false;
+}
+(function(){
+  let sx=0, sy=0, st=0, tracking=false;
+  const area = document.getElementById("main");
+  area.addEventListener("touchstart", (e)=>{
+    tracking = false;
+    if(e.touches.length !== 1 || swipeShouldBeIgnored(e.target)) return;
+    const t = e.touches[0]; sx = t.clientX; sy = t.clientY; st = Date.now(); tracking = true;
+  }, {passive:true});
+  area.addEventListener("touchend", (e)=>{
+    if(!tracking) return; tracking = false;
+    const t = e.changedTouches[0]; if(!t) return;
+    const dx = t.clientX - sx, dy = t.clientY - sy;
+    // a quick, mostly-horizontal flick of at least ~70px
+    if(Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 1.8 || Date.now() - st > 700) return;
+    swipeToNeighborTab(dx < 0 ? 1 : -1);
+  }, {passive:true});
+  area.addEventListener("touchcancel", ()=>{ tracking = false; }, {passive:true});
+})();
 // One-tap way home from anywhere: the 🏠 button in the header.
 document.getElementById("headerHomeBtn").addEventListener("click", ()=>{
   goToTab("home");
