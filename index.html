@@ -181,6 +181,29 @@
   .dragHandle:hover{background:rgba(0,0,0,.06);}
   .itemRow.dragging{position:relative;z-index:50;background:#fff;box-shadow:0 8px 22px rgba(0,0,0,.22);border-radius:10px;opacity:.97;cursor:grabbing;}
   body.isDraggingItem{user-select:none;-webkit-user-select:none;cursor:grabbing;}
+  /* Grocery: master list + active shopping list */
+  #toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%) translateY(20px);background:#223;color:#fff;padding:9px 16px;border-radius:20px;font-size:14px;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:9998;max-width:86vw;text-align:center;}
+  #toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+  .groceryCard h3 .todayCounter{font-size:12px;}
+  .groceryCard .addLine select,.masterRow select{padding:6px 8px;border:1px solid var(--line);border-radius:8px;font-size:12px;background:#fff;max-width:130px;}
+  .masterSearch{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font-size:15px;margin:6px 0 8px;box-sizing:border-box;}
+  .masterCat{margin-top:6px;border-top:1px solid var(--line);}
+  .masterCat>summary{cursor:pointer;font-weight:700;padding:8px 0;font-size:14px;list-style:none;display:flex;align-items:center;gap:6px;}
+  .masterCat>summary::-webkit-details-marker{display:none;}
+  .masterCat>summary::before{content:"▸";color:var(--muted);font-size:12px;transition:transform .15s;}
+  .masterCat[open]>summary::before{transform:rotate(90deg);}
+  .masterRow{flex-wrap:wrap;}
+  .masterRow .rowText{min-width:90px;flex:1 1 120px;}
+  .addActiveBtn{flex-shrink:0;width:34px;height:34px;border-radius:50%;border:1px solid var(--accent);background:#fff;color:var(--accent);font-size:20px;line-height:1;cursor:pointer;padding:0;font-weight:700;}
+  .addActiveBtn.on{background:var(--accent);color:#fff;}
+  .clearDoneBtn{margin-top:10px;}
+  .masterToolbar{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:2px 0 4px;}
+  .masterToolbar .miniBtn[aria-pressed="true"]{background:var(--accent);color:#fff;border-color:var(--accent);}
+  .alreadyTag{font-size:11px;color:var(--muted);font-style:italic;white-space:nowrap;flex-shrink:0;}
+  .catActions{margin-left:auto;display:inline-flex;gap:4px;}
+  .catBtn{border:1px solid var(--line);background:#fff;border-radius:8px;padding:2px 8px;font-size:12px;cursor:pointer;color:var(--muted);}
+  .catBtn:hover{background:rgba(0,0,0,.05);}
+  .emptyCatHint{margin:2px 0 8px 18px;font-size:12px;}
   .recurToggle{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted);white-space:nowrap;flex-shrink:0;cursor:pointer;}
   .recurToggle input{margin:0;}
   .weekNavRow{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;}
@@ -594,6 +617,26 @@ function defaultState(){
   };
 }
 
+// (must be defined before loadState() below runs, which categorizes groceries)
+const GROCERY_CATEGORIES = ["Produce","Meat & Seafood","Dairy & Eggs","Bakery","Pantry","Frozen Foods","Beverages","Snacks","Household","Personal Care","Pet","Other"];
+// Ordered rules: the first match wins, so specific phrases that would be
+// mistaken for something else (peanut butter, chicken broth, hot dog buns,
+// ice cream...) come before the general words.
+const GROCERY_RULES = [
+  ["Pet", /\b(dog|cat|puppy|kitten|pet)\b.*\b(food|treats?|litter|chews?|toys?)\b|\bcat litter\b|\bkibble\b/],
+  ["Pantry", /\bbroth\b|\bstock\b|\bsoups?\b|\bbouillon\b|\bpeanut butter\b|\balmond butter\b|\bapple ?butter\b|\bcookie butter\b|\bcoconut (milk|cream|oil|water)\b|\bmac(aroni)?( and|\s*&|\s*n'?)\s*cheese\b|\bcanned\b|\bcan of\b|\b(diced|crushed|stewed|whole peeled|sun-?dried) tomato(es)?\b|\btomato (sauce|paste|puree)\b|\bpasta sauce\b|\bpizza sauce\b|\bcream of\b|\bchicken noodle\b|\btuna\b|\bapple ?sauce\b|\b(cake|brownie|muffin|cornbread|pancake|waffle|bread|biscuit|pizza dough) mix\b|\bpancake\b|\bbread ?crumbs?\b|\bgravy\b|\bseasoning\b|\bcorn ?starch\b|\bcondensed milk\b|\bevaporated milk\b|\bpowdered (sugar|milk)\b|\bchocolate chips?\b(?! cookies?| muffins?)|\bbaking chocolate\b/],
+  ["Dairy & Eggs", /\b(almond|oat|soy|cashew|rice|hemp|plant) (milk|creamer|yogh?urt)\b/],
+  ["Frozen Foods", /\bfrozen\b|\bice cream\b|\bpopsicles?\b|\bgelato\b|\bsorbet\b|\bpizza( rolls?)?\b|\bfish sticks?\b|\btater tots?\b|\bhash browns?\b|\bpot pies?\b|\bchicken nuggets?\b|\bwaffles?\b|\bpierogies\b|\bfrench fries\b|\bfries\b|\bice cubes?\b|^ice$|\bfreezer meals?\b|\btv dinners?\b|\begg rolls?\b/],
+  ["Household", /\bpaper towels?\b|\btoilet (paper|tissue)\b|\bbath tissue\b|\btissues?\b|\bkleenex\b|\b(trash|garbage|kitchen|bin) bags?\b|\bdish (soap|liquid|detergent)\b|\bdishwasher\b|\bdetergent\b|\blaundry\b|\bbleach\b|\bcleaner\b|\bcleaning\b|\blysol\b|\bclorox\b|\bwindex\b|\bsponges?\b|\bscrub\b|\bdisinfect\w*\b|\balu?minum foil\b|\bfoil\b|\bplastic wrap\b|\bcling wrap\b|\bsaran\b|\bziploc\b|\bzip(per)? bags?\b|\bsandwich bags?\b|\bfreezer bags?\b|\bparchment\b|\bwax paper\b|\bnapkins?\b|\bpaper (plates?|cups?|bowls?)\b|\bplastic (cups?|forks?|spoons?|utensils?)\b|\blight ?bulbs?\b|\bbatter(y|ies)\b|\bcandles?\b|\bair freshener\b|\bfebreze\b|\bfabric softener\b|\bdryer sheets?\b|\bmop\b|\bbroom\b|\bgloves?\b|\btape\b|\bglue\b|\bpaper\b|\bwd-?40\b|\bhangers?\b|\bbug spray\b|\bpest\b/],
+  ["Personal Care", /\bshampoo\b|\bconditioner\b|\bbody wash\b|\bface wash\b|\bsoap\b|\btoothpaste\b|\btooth ?brush(es)?\b|\bfloss\b|\bmouth ?wash\b|\bdeodorant\b|\brazors?\b|\bshav(e|ing)\b|\blotion\b|\bmoisturizer\b|\bsunscreen\b|\blip balm\b|\bchapstick\b|\bcotton (balls?|swabs?|pads?)\b|\bq-?tips?\b|\btampons?\b|\bmaxi pads?\b|\bsanitary\b|\bdiapers?\b|\bpull-?ups\b|\bbaby (wipes?|powder|lotion|shampoo|formula)\b|\bwipes\b|\bformula\b|\bmakeup\b|\bmascara\b|\bperfume\b|\bcologne\b|\bband-?aids?\b|\bbandages?\b|\bvitamins?\b|\bsupplements?\b|\bmedicine\b|\bibuprofen\b|\btylenol\b|\bacetaminophen\b|\badvil\b|\bpain reliever\b|\bnail polish\b|\bhair (gel|spray|dye|brush)\b/],
+  ["Beverages", /\bjuice\b|\bsoda\b|\bcola\b|\bcoke\b|\bpepsi\b|\bsprite\b|\bfanta\b|\bdr\.? ?pepper\b|\bmountain dew\b|\bginger ?ale\b|\bwater\b|\bsparkling\b|\bseltzer\b|\bcoffee\b|\bespresso\b|\bk-?cups?\b|\btea\b|\bkombucha\b|\benergy drinks?\b|\bgatorade\b|\bpowerade\b|\blemonade\b|\bkool-?aid\b|\bbeer\b|\bwine\b|\bvodka\b|\bwhiske?y\b|\brum\b|\btequila\b|\bgin\b|\bliquor\b|\bchampagne\b|\bdrinks?\b|\bsmoothies?\b/],
+  ["Snacks", /\bchips?\b|\bcrackers?\b|\bcookies?\b|\bcandy\b|\bchocolate\b|\bpopcorn\b|\bpretzels?\b|\bnuts?\b|\balmonds?\b|\bcashews?\b|\bpeanuts?\b|\bpistachios?\b|\bwalnuts?\b|\bpecans?\b|\bgranola bars?\b|\bprotein bars?\b|\bcereal bars?\b|\bfruit snacks?\b|\bgumm(y|ies)\b|\bgum\b|\bjerky\b|\btrail mix\b|\bsnacks?\b|\bdoritos\b|\bcheetos\b|\bpringles\b|\boreos?\b|\bgoldfish\b|\brice (cakes?|krispies)\b/],
+  ["Bakery", /\bbread\b|\bbagels?\b|\bbuns?\b|\brolls?\b|\btortillas?\b|\bwraps?\b|\bpitas?\b|\bnaan\b|\bmuffins?\b|\bcroissants?\b|\bdonuts?\b|\bdoughnuts?\b|\bcakes?\b|\bcupcakes?\b|\bpies?\b|\bbrownies\b|\bbaguettes?\b|\bsourdough\b|\bflatbread\b|\bpastr(y|ies)\b|\bbiscuits?\b|\bdough\b/],
+  ["Meat & Seafood", /\bchicken\b|\bbeef\b|\bsteaks?\b|\bground (beef|turkey|pork|chicken|meat)\b|\bpork\b|\bbacon\b|\bsausages?\b|\bham\b|\bturkey\b|\blamb\b|\bribs?\b|\broast\b|\bhot ?dogs?\b|\bsalmon\b|\bshrimp\b|\bfish\b|\btilapia\b|\bcod\b|\bhaddock\b|\bcrab\b|\blobster\b|\bscallops?\b|\boysters?\b|\bclams?\b|\bmussels?\b|\bdeli\b|\bsalami\b|\bpepperoni\b|\bwings?\b|\bdrumsticks?\b|\bthighs?\b|\bbreasts?\b|\bpatties\b|\bmeatballs?\b|\bbrisket\b|\bmeat\b|\bseafood\b|\bprosciutto\b|\bbologna\b|\bkielbasa\b|\bbrats?\b|\bveal\b|\bduck\b/],
+  ["Dairy & Eggs", /\bmilk\b|\beggs?\b|\bbutter(milk)?\b|\bmargarine\b|\bcheese\b|\byogh?urt\b|\bcreamer\b|\bhalf (and|&) half\b|\bsour cream\b|\bwhipped (cream|topping)\b|\bheavy cream\b|\bwhipping cream\b|\bcream cheese\b|\bcottage cheese\b|\bkefir\b|\bricotta\b|\bmozzarella\b|\bcheddar\b|\bparmesan\b|\bfeta\b|\bcream\b|\begg ?nog\b/],
+  ["Produce", /\bapples?\b|\bbananas?\b|\boranges?\b|\blemons?\b|\blimes?\b|\bgrapes?\b|\bberr(y|ies)\b|\bstrawberr\w*\b|\bblueberr\w*\b|\braspberr\w*\b|\bblackberr\w*\b|\bcranberr\w*\b|\bavocados?\b|\btomato(es)?\b|\bpotato(es)?\b|\byams?\b|\bonions?\b|\bscallions?\b|\bgarlic\b|\blettuce\b|\bspinach\b|\bkale\b|\barugula\b|\bsalad\b|\bcucumbers?\b|\bcarrots?\b|\bcelery\b|\b(bell|jalape\w*|green|red|yellow|orange|sweet|hot|serrano|poblano) peppers?\b|\bbroccoli\b|\bcauliflower\b|\bmushrooms?\b|\bzucchini\b|\bsquash\b|\bcorn on the cob\b|\bears? of corn\b|\bsweet corn\b|\bpeas\b|\bgreen beans?\b|\basparagus\b|\bcabbage\b|\bcilantro\b|\bparsley\b|\bbasil\b|\bmint\b|\brosemary\b|\bthyme\b|\bdill\b|\bchives\b|\bginger\b|\bmelons?\b|\bwatermelon\b|\bcantaloupe\b|\bhoneydew\b|\bpineapples?\b|\bmangos?\b|\bpeach(es)?\b|\bpears?\b|\bplums?\b|\bnectarines?\b|\bcherr(y|ies)\b|\bkiwis?\b|\bpomegranates?\b|\bgrapefruits?\b|\bclementines?\b|\btangerines?\b|\bfruits?\b|\bveggies\b|\bvegetables?\b|\bradish(es)?\b|\bbeets?\b|\beggplants?\b|\bleeks?\b|\bbrussels?\b|\bartichokes?\b|\bbok choy\b|\bproduce\b|\bherbs?\b|\bshallots?\b|\bturnips?\b|\bparsnips?\b/],
+  ["Pantry", /\brice\b|\bpasta\b|\bspaghetti\b|\bmacaroni\b|\bpenne\b|\bnoodles?\b|\bramen\b|\blinguine\b|\bfettuccine\b|\blasagna\b|\bflour\b|\bsugar\b|\bsalt\b|\bpepper\b|\bspices?\b|\bcinnamon\b|\bcumin\b|\bpaprika\b|\boregano\b|\bvanilla\b|\bbaking (soda|powder)\b|\byeast\b|\bcocoa\b|\boils?\b|\bvinegar\b|\bsauce\b|\bketchup\b|\bmustard\b|\bmayo(nnaise)?\b|\bdressing\b|\bsalsa\b|\bbbq\b|\bbarbecue\b|\bsyrup\b|\bhoney\b|\bjam\b|\bjelly\b|\bnutella\b|\bcereal\b|\boat(s|meal)?\b|\bgranola\b|\bbeans?\b|\blentils?\b|\bchickpeas?\b|\bquinoa\b|\bcouscous\b|\bolives?\b|\bpickles?\b|\bcapers\b|\btaco (shells?|kit)\b|\bstuffing\b|\bcorn\b/]
+];
 let state = loadState();
 
 // The Cloudflare Worker that powers calendar sync + Quick Add. Households
@@ -639,6 +682,151 @@ function migrateChoreDates(s){
 // and a `cashNeeded` figure after the tab first shipped -- backfill both
 // on anything saved before that so old categories don't break the new
 // grouped display (blank group just renders with no section header).
+/* =========================================================================
+   GROCERY: MASTER LIST + ACTIVE SHOPPING LIST
+   The old single "Grocery" list becomes the permanent Master Grocery List
+   (every item kept, now sorted into categories). A second list, the Active
+   Shopping List, holds only what's needed on the next trip.
+   Both are normal entries in state.lists, tagged with kind:"master" /
+   kind:"active", so they sync with the household like any other list.
+   ========================================================================= */
+function categorizeGroceryItem(text){
+  const t = " "+String(text||"").toLowerCase().replace(/[^a-z0-9&'\- ]/g," ").replace(/\s+/g," ").trim()+" ";
+  const tt = t.trim();
+  for(const [cat, re] of GROCERY_RULES){ if(re.test(tt)) return cat; }
+  return "Other";
+}
+// Turns the old "Grocery" list into the Master list (nothing is deleted or
+// replaced), files every item that doesn't have a category yet, and makes
+// sure the Active Shopping List exists. Safe to run repeatedly -- and, since
+// the ids it creates are fixed, safe if two devices run it at once.
+function migrateGrocery(s){
+  if(!s) return s;
+  if(!Array.isArray(s.lists)) s.lists = [];
+  let master = s.lists.find(l=>l && l.kind==="master");
+  let converted = false; // true only the one time the old Grocery list is turned into the Master list
+  if(!master){
+    master = s.lists.find(l=>l && /^\s*groceries?\s*$/i.test(l.name||"")) || s.lists.find(l=>l && /grocer/i.test(l.name||"") && !l.kind);
+    if(master){ master.kind = "master"; master.name = "Master Grocery List"; converted = true; }
+    else{ master = {id:"l_master_grocery", name:"Master Grocery List", color:"#5cb85c", kind:"master", items:[]}; s.lists.unshift(master); }
+  }
+  if(!Array.isArray(master.items)) master.items = [];
+  if(!Array.isArray(master.categories)) master.categories = GROCERY_CATEGORIES.slice();
+  if(!master.catAliases || typeof master.catAliases!=="object") master.catAliases = {};
+  let active = s.lists.find(l=>l && l.kind==="active");
+  if(!active){
+    active = {id:"l_active_shopping", name:"Active Shopping List", color:"#f0ad4e", kind:"active", items:[]};
+    s.lists.splice(s.lists.indexOf(master)+1, 0, active);
+  }
+  if(!Array.isArray(active.items)) active.items = [];
+  master.items.forEach(it=>{ if(it && !it.cat) it.cat = resolveGroceryCat(master, categorizeGroceryItem(it.text)); });
+  master.items.forEach(it=>{ if(it && it.cat && !master.categories.includes(it.cat)) master.categories.push(it.cat); });
+  // Carry over what was ticked on the old list: items NOT yet crossed off are
+  // things still to buy, so they go onto the Active Shopping List; crossed-off
+  // (already bought) items stay in the Master list only. Ids are derived from
+  // the master item's id and duplicates (same item, or same name) are skipped,
+  // so running this twice -- or on two devices at once -- never doubles up.
+  if(converted){
+    const seen = new Set(active.items.map(i=> i.masterId || ("t:"+normName(i.text))));
+    const seenText = new Set(active.items.map(i=> normName(i.text)));
+    master.items.forEach(it=>{
+      if(!it || !it.text || it.done) return;
+      const n = normName(it.text);
+      if(seen.has(it.id) || seenText.has(n)) return;
+      active.items.push({id:"a_"+it.id, text:it.text, done:false, masterId:it.id});
+      seen.add(it.id); seenText.add(n);
+    });
+  }
+  return s;
+}
+// Categories are the user's: the master list keeps its own ordered list of
+// category names (starting from the defaults) that can be added to, renamed
+// and filled by hand. Renaming a built-in one is remembered as an alias so
+// the auto-categorizer files new items under the NEW name, not the old one.
+function resolveGroceryCat(master, cat){
+  const al = (master && master.catAliases) || {}; let c = cat, guard = 0;
+  while(al[c] && guard++ < 6) c = al[c];
+  return c;
+}
+function ensureGroceryCategory(master, cat){
+  if(master && cat){ if(!Array.isArray(master.categories)) master.categories = GROCERY_CATEGORIES.slice(); if(!master.categories.includes(cat)) master.categories.push(cat); }
+}
+// Reorders only the items named in orderedIds, keeping every other item
+// exactly where it is -- used when you drag within one category.
+function reorderWithinGroup(list, orderedIds){
+  const byId = new Map(list.items.map(i=>[i.id, i]));
+  const seq = orderedIds.filter(id=>byId.has(id));
+  const idxs = []; list.items.forEach((it,i)=>{ if(seq.includes(it.id)) idxs.push(i); });
+  if(seq.length!==idxs.length){ reorderListItems(list, orderedIds); return; }
+  idxs.forEach((pos,k)=>{ list.items[pos] = byId.get(seq[k]); });
+}
+function renameGroceryCategory(master, oldName, newName){
+  newName = (newName||"").trim();
+  if(!master || !newName || newName===oldName) return {status:"same"};
+  const existing = (master.categories||[]).find(c=>c.toLowerCase()===newName.toLowerCase() && c!==oldName);
+  const target = existing || newName;
+  master.items.forEach(it=>{ if((it.cat||"Other")===oldName) it.cat = target; });
+  const i = master.categories.indexOf(oldName);
+  if(existing){ if(i>=0) master.categories.splice(i,1); }
+  else if(i>=0) master.categories[i] = target; else master.categories.push(target);
+  master.catAliases = master.catAliases || {};
+  Object.keys(master.catAliases).forEach(k=>{ if(master.catAliases[k]===oldName) master.catAliases[k] = target; });
+  master.catAliases[oldName] = target;
+  if(masterCollapsed.has(oldName)){ masterCollapsed.delete(oldName); masterCollapsed.add(target); }
+  return {status: existing ? "merged" : "renamed", name: target};
+}
+function groceryMaster(){ return state.lists.find(l=>l.kind==="master"); }
+function groceryActive(){ return state.lists.find(l=>l.kind==="active"); }
+function newItemId(){ return "i_"+Date.now()+"_"+Math.random().toString(36).slice(2,7); }
+function normName(t){ return (t||"").trim().toLowerCase().replace(/\s+/g," "); }
+function findMasterByName(text){ const m = groceryMaster(); const n = normName(text); return m ? m.items.find(i=>normName(i.text)===n) : null; }
+function addToMaster(text, cat){
+  const m = groceryMaster(); text = (text||"").trim(); if(!m || !text) return null;
+  const ex = findMasterByName(text); if(ex) return {item:ex, created:false};
+  const finalCat = resolveGroceryCat(m, cat || categorizeGroceryItem(text));
+  ensureGroceryCategory(m, finalCat);
+  const item = {id:newItemId(), text, done:false, cat: finalCat};
+  m.items.push(item); return {item, created:true};
+}
+// Puts something on the Active Shopping List. From the Master list (masterId),
+// or typed in (optionally also saved to Master). Never creates a duplicate:
+// if it's already there it's left alone, or un-ticked if it was crossed off.
+function addToActive(text, opts){
+  const a = groceryActive(); if(!a) return {status:"none"};
+  text = (text||"").trim(); if(!text) return {status:"empty"};
+  opts = opts || {};
+  let masterId = opts.masterId || null, savedToMaster = false;
+  if(opts.saveToMaster){ const r = addToMaster(text, opts.cat); if(r){ masterId = r.item.id; savedToMaster = r.created; } }
+  else if(!masterId){ const ex = findMasterByName(text); if(ex) masterId = ex.id; }
+  const n = normName(text);
+  const existing = a.items.find(i=> (masterId && i.masterId===masterId) || normName(i.text)===n);
+  if(existing){
+    if(existing.done){ existing.done = false; return {status:"restored", item:existing, savedToMaster}; }
+    return {status:"exists", item:existing, savedToMaster};
+  }
+  const item = {id:newItemId(), text, done:false}; if(masterId) item.masterId = masterId;
+  a.items.push(item);
+  return {status:"added", item, savedToMaster};
+}
+function isOnActiveList(masterItem){
+  const a = groceryActive(); if(!a) return false;
+  const n = normName(masterItem.text);
+  return a.items.some(i=> !i.done && (i.masterId===masterItem.id || normName(i.text)===n));
+}
+function showToast(msg){
+  let el = document.getElementById("toast");
+  if(!el){ el = document.createElement("div"); el.id = "toast"; document.body.appendChild(el); }
+  el.textContent = msg; el.classList.add("show");
+  clearTimeout(window.__toastT); window.__toastT = setTimeout(()=> el.classList.remove("show"), 1900);
+}
+function rerenderKeepScroll(){
+  const m = document.getElementById("main"); const mt = m ? m.scrollTop : 0, wy = window.scrollY;
+  renderTab();
+  const m2 = document.getElementById("main"); if(m2) m2.scrollTop = mt; window.scrollTo(0, wy);
+}
+let masterSearchQuery = "";
+const masterCollapsed = new Set();
+
 function migrateBudget(s){
   if(!s || !s.budget) return s;
   if(typeof s.budget.monthlyIncome !== "number") s.budget.monthlyIncome = 0;
@@ -661,10 +849,11 @@ function loadState(){
       merged.budget = Object.assign(defaultState().budget, saved.budget||{});
       migrateChoreDates(merged);
       migrateBudget(merged);
+      migrateGrocery(merged);
       return merged;
     }
   }catch(e){ console.warn("Could not load saved data, starting fresh.", e); }
-  return defaultState();
+  return migrateGrocery(defaultState());
 }
 function saveState(){
   // localStorage can be full (photos are big). Never let that stop the cloud
@@ -927,7 +1116,7 @@ function localStateHasRealData(s){
   if(s.feeds && s.feeds.length) return true;
   if(s.meals && Object.keys(s.meals).length) return true;
   if(s.redemptions && s.redemptions.length) return true;
-  if(s.lists && s.lists.some(l=> (l.items&&l.items.length>0) || (l.name||"").toLowerCase()!=="grocery")) return true;
+  if(s.lists && s.lists.some(l=> (l.items&&l.items.length>0) || (!l.kind && (l.name||"").toLowerCase()!=="grocery"))) return true;
   return false;
 }
 
@@ -1494,7 +1683,10 @@ function applyAiAction(action){
   }
   if(action.type==="add_list_item"){
     const text=(action.text||"").trim(); if(!text) return null;
-    const list = fuzzyFindByName(state.lists, "name", action.listName) || state.lists[0];
+    let list = fuzzyFindByName(state.lists, "name", action.listName) || state.lists[0];
+    // Groceries go on the Active Shopping List (the Master list is the
+    // permanent catalogue; the AI box adds to what's needed now).
+    if(!list || list.kind==="master") list = groceryActive() || list;
     if(!list) return null; // no lists exist at all
     const id = "i_"+Date.now()+"_"+Math.random().toString(36).slice(2);
     list.items.push({id, text, done:false});
@@ -1790,7 +1982,7 @@ function homeHTML(){
   const todayEvents = eventsForDay(new Date());
   const todayMeal = state.meals[todayISO] || {breakfast:"",lunch:"",dinner:""};
   const mealBits = [todayMeal.breakfast, todayMeal.lunch, todayMeal.dinner].filter(Boolean);
-  const groceryList = state.lists.find(l=>l.name.toLowerCase()==="grocery") || state.lists[0];
+  const groceryList = state.lists.find(l=>l.kind==="active") || state.lists.find(l=>l.name.toLowerCase()==="grocery") || state.lists[0];
   const groceryRemaining = groceryList ? groceryList.items.filter(i=>!i.done).length : 0;
   const thisMonthKey = monthKeyOf(new Date());
   const budgetSpentThisMonth = txnsForMonth(thisMonthKey).reduce((s,t)=> s+(+t.amount||0), 0);
@@ -2492,8 +2684,94 @@ function attachChoreEvents(){
 }
 
 /* ---------------------------- LISTS TAB ---------------------------- */
+function groceryCatOptions(selected, withAuto){
+  const m = groceryMaster();
+  const cats = ((m && m.categories) || GROCERY_CATEGORIES).slice();
+  if(selected && !cats.includes(selected)) cats.push(selected);
+  return (withAuto ? `<option value="">Auto category</option>` : "") + cats.map(c=>`<option value="${escapeHtml(c)}" ${c===selected?'selected':''}>${escapeHtml(c)}</option>`).join("");
+}
+function activeShoppingCardHTML(l){
+  const left = l.items.filter(i=>!i.done).length, doneCount = l.items.length - left;
+  return `<div class="card groceryCard" id="activeShopCard">
+    <h3><span class="titleGroup"><span class="iconBadge" style="background:#fff3e0;color:#c77700">🛒</span>Active Shopping List</span><span class="todayCounter">${left} to buy</span></h3>
+    <div class="activeItems">
+    ${l.items.map(it=>`
+      <div class="itemRow" data-itemrow="${l.id}|${it.id}">
+        <div class="dragHandle" data-draghandle="${l.id}|${it.id}" title="Drag to reorder" aria-label="Drag to reorder">⠿</div>
+        <div class="checkBox ${it.done?'done':''}" data-item="${l.id}|${it.id}">${it.done?'✓':''}</div>
+        <input type="text" class="editableText rowText ${it.done?'done':''}" data-itemtext="${l.id}|${it.id}" value="${escapeHtml(it.text)}">
+        <button class="smallBtn" data-delitem="${l.id}|${it.id}">✕</button>
+      </div>`).join("") || `<p class="helpText" style="margin:8px 0">Nothing on the list yet. Tap ＋ next to anything in the Master Grocery List below, or type something new.</p>`}
+    </div>
+    <div class="addLine" style="flex-wrap:wrap">
+      <input type="text" id="activeNewItem" placeholder="Add an item…">
+      <button id="activeAddBtn">Add</button>
+      <label class="recurToggle" title="Also keep this item in the Master Grocery List for next time"><input type="checkbox" id="activeSaveMaster" checked><span>Also save to Master List</span></label>
+      <select id="activeNewCat" title="Category used if it's saved to the Master List">${groceryCatOptions("", true)}</select>
+    </div>
+    <button class="miniBtn clearDoneBtn" id="clearCompletedBtn" ${doneCount?'':'disabled'}>🧹 Clear Completed Items${doneCount?` (${doneCount})`:''}</button>
+    <p class="helpText" style="margin-top:6px">Clearing only removes ticked items from this shopping list — they stay in the Master Grocery List.</p>
+  </div>`;
+}
+function masterListCardHTML(l){
+  const az = !!state.settings.masterSortAZ;     // OFF unless the user turns it on
+  const groups = new Map();
+  (l.categories || GROCERY_CATEGORIES).forEach(c=> groups.set(c, []));
+  l.items.forEach(it=>{ const c = it.cat || "Other"; if(!groups.has(c)) groups.set(c, []); groups.get(c).push(it); });
+  const order = Array.from(groups.keys());
+  return `<div class="card groceryCard" id="masterCard">
+    <h3><span class="titleGroup"><span class="iconBadge" style="background:#e8f5e9;color:#2e7d32">📋</span>Master Grocery List</span><span class="todayCounter">${l.items.length} item${l.items.length===1?'':'s'}</span></h3>
+    <p class="helpText" style="margin:0 0 4px">Everything you regularly buy. Tap ＋ to put an item on the shopping list.</p>
+    <input type="search" id="masterSearch" class="masterSearch" placeholder="🔍 Search the master list…" value="${escapeHtml(masterSearchQuery)}" autocomplete="off">
+    <div id="masterSearchEmpty" class="helpText" style="display:none;margin-bottom:8px"></div>
+    <div class="masterToolbar">
+      <button class="miniBtn" id="masterSortBtn" aria-pressed="${az}" title="Show items A–Z within each category. Your own order is kept and comes back when you switch this off.">🔤 ${az?'A–Z: on':'Sort A–Z'}</button>
+      <button class="miniBtn" id="masterCollapseAllBtn">Collapse all</button>
+      <button class="miniBtn" id="masterExpandAllBtn">Expand all</button>
+    </div>
+    <p class="helpText" style="margin:0 0 4px">${az?'Showing A–Z. Your own order is untouched — switch A–Z off to get it back.':'Items stay in the order you put them. Drag ⠿ to rearrange within a category.'}</p>
+    <div id="masterGroups">
+    ${order.map(cat=>{
+      let items = groups.get(cat).slice();
+      if(az) items.sort((a,b)=> a.text.toLowerCase().localeCompare(b.text.toLowerCase())); // view only; the saved order is not changed
+      return `<details class="masterCat" data-mastercat="${escapeHtml(cat)}" ${masterCollapsed.has(cat)?'':'open'}>
+        <summary><span class="catName">${escapeHtml(cat)}</span> <span class="helpText" style="font-weight:400">(${items.length})</span>
+          <span class="catActions"><button type="button" class="catBtn" data-renamecat="${escapeHtml(cat)}" title="Rename this category">✎ Rename</button>${items.length===0?`<button type="button" class="catBtn" data-delcat="${escapeHtml(cat)}" title="Delete this empty category">✕</button>`:''}</span>
+        </summary>
+        ${items.length? '' : `<p class="helpText emptyCatHint">No items yet — move or add some here.</p>`}
+        ${items.map(it=>{
+          const on = isOnActiveList(it);
+          return `<div class="itemRow masterRow" data-itemrow="${l.id}|${it.id}" data-masterrow="${it.id}" data-name="${escapeHtml(normName(it.text)+' '+cat.toLowerCase())}">
+            ${az ? '' : `<div class="dragHandle" data-draghandle="${l.id}|${it.id}" title="Drag to reorder" aria-label="Drag to reorder">⠿</div>`}
+            <button class="addActiveBtn ${on?'on':''}" data-addtoactive="${it.id}" title="${on?'Already on the shopping list':'Add to the shopping list'}" aria-label="Add to shopping list">${on?'✓':'＋'}</button>
+            <input type="text" class="editableText rowText" data-itemtext="${l.id}|${it.id}" value="${escapeHtml(it.text)}">
+            ${on ? `<span class="alreadyTag">Already added</span>` : ''}
+            <select data-itemcat="${it.id}" title="Move to another category">${groceryCatOptions(cat, false)}</select>
+            <button class="smallBtn" data-delitem="${l.id}|${it.id}" title="Remove from the master list">✕</button>
+          </div>`;
+        }).join("")}
+      </details>`;
+    }).join("") || `<p class="helpText" style="margin:10px 0">The master list is empty — add the things you buy regularly below.</p>`}
+    </div>
+    <div class="addLine" style="flex-wrap:wrap;margin-top:10px">
+      <input type="text" id="masterNewItem" placeholder="Add to the master list…">
+      <button id="masterAddBtn">Add</button>
+      <select id="masterNewCat" title="Category">${groceryCatOptions("", true)}</select>
+      <label class="recurToggle"><input type="checkbox" id="masterAlsoActive"><span>Also add to shopping list</span></label>
+    </div>
+    <div class="addLine" style="flex-wrap:wrap;margin-top:6px">
+      <input type="text" id="masterNewCategory" placeholder="New category (e.g. Baby, Bulk, Costco)…">
+      <button id="masterAddCategoryBtn">Add category</button>
+    </div>
+  </div>`;
+}
 function listsHTML(){
-  return `<div class="col2">` + state.lists.map(l=>`
+  const master = groceryMaster(), active = groceryActive();
+  const generic = state.lists.filter(l=>l.kind!=="master" && l.kind!=="active");
+  return `<div class="col2">`
+    + (active ? activeShoppingCardHTML(active) : "")
+    + (master ? masterListCardHTML(master) : "")
+    + generic.map(l=>`
     <div class="card">
       <h3><input type="text" class="editableText editableTitle" style="color:${l.color}" data-listname="${l.id}" value="${escapeHtml(l.name)}"><button class="smallBtn" data-dellist="${l.id}">Delete list</button></h3>
       ${l.items.map((it,idx)=>`
@@ -2547,7 +2825,7 @@ function attachListDragEvents(){
       const [lid, iid] = handle.dataset.draghandle.split("|");
       const row = handle.closest(".itemRow"); if(!row) return;
       const card = row.parentElement;
-      const rowsOf = ()=> Array.from(card.querySelectorAll(`.itemRow[data-itemrow^="${lid}|"]`));
+      const rowsOf = ()=> Array.from(card.querySelectorAll(`.itemRow[data-itemrow^="${lid}|"]`)).filter(r=> r.style.display!=="none" || r===row);
       const startRect = row.getBoundingClientRect();
       const grabOffsetY = e.clientY - startRect.top;
       const scroller = document.getElementById("main");
@@ -2595,7 +2873,7 @@ function attachListDragEvents(){
         if(list && row.isConnected){
           const order = rowsOf().map(r=> r.dataset.itemrow.split("|")[1]);
           const before = list.items.map(i=>i.id).join(",");
-          reorderListItems(list, order);
+          reorderWithinGroup(list, order);   // only the rows in this group move; everything else stays put
           if(list.items.map(i=>i.id).join(",") !== before) saveState();
         }
         renderTab();
@@ -2607,17 +2885,142 @@ function attachListDragEvents(){
     });
   });
 }
+function applyMasterSearch(){
+  const q = normName(masterSearchQuery);
+  const rows = Array.from(document.querySelectorAll(".masterRow"));
+  const empty = document.getElementById("masterSearchEmpty");
+  let shown = 0;
+  rows.forEach(r=>{ const hit = !q || r.dataset.name.includes(q); r.style.display = hit ? "" : "none"; if(hit) shown++; });
+  document.querySelectorAll(".masterCat").forEach(d=>{
+    const any = Array.from(d.querySelectorAll(".masterRow")).some(r=>r.style.display!=="none");
+    d.style.display = (any || !q) ? "" : "none";   // empty categories stay visible unless you're searching
+    if(q && any) d.open = true;               // searching opens matching categories
+    else if(!q) d.open = !masterCollapsed.has(d.dataset.mastercat);
+  });
+  if(empty){
+    if(q && !shown){
+      empty.style.display = "";
+      empty.innerHTML = `No match for “${escapeHtml(masterSearchQuery.trim())}”. <button class="miniBtn" id="masterSearchAddBtn">＋ Add it to the master list and shopping list</button>`;
+      const b = document.getElementById("masterSearchAddBtn");
+      if(b) b.onclick = ()=>{
+        const res = addToActive(masterSearchQuery, {saveToMaster:true});
+        saveState(); masterSearchQuery = ""; rerenderKeepScroll();
+        showToast(res.status==="added" ? `Added “${res.item.text}” to master and shopping list` : "Saved");
+      };
+    }else{ empty.style.display = "none"; empty.innerHTML = ""; }
+  }
+}
+function attachGroceryEvents(){
+  // Master list: search (filters in place so typing is never interrupted)
+  const search = document.getElementById("masterSearch");
+  if(search){
+    search.addEventListener("input", ()=>{ masterSearchQuery = search.value; applyMasterSearch(); });
+    applyMasterSearch();
+  }
+  document.querySelectorAll(".masterCat").forEach(d=> d.addEventListener("toggle", ()=>{
+    if(normName(masterSearchQuery)) return;           // ignore the automatic opening while searching
+    if(d.open) masterCollapsed.delete(d.dataset.mastercat); else masterCollapsed.add(d.dataset.mastercat);
+  }));
+  // One tap: master item -> shopping list
+  document.querySelectorAll("[data-addtoactive]").forEach(btn=> btn.onclick=()=>{
+    const m = groceryMaster(); const item = m && m.items.find(i=>i.id===btn.dataset.addtoactive); if(!item) return;
+    const res = addToActive(item.text, {masterId:item.id});
+    saveState(); rerenderKeepScroll();
+    showToast(res.status==="added" ? `Added “${item.text}” to the shopping list`
+      : res.status==="restored" ? `“${item.text}” is back on the shopping list`
+      : `“${item.text}” is already on the shopping list`);
+  });
+  // Sorting is a view the user opts into -- never automatic.
+  const sortBtn = document.getElementById("masterSortBtn");
+  if(sortBtn) sortBtn.onclick = ()=>{ state.settings.masterSortAZ = !state.settings.masterSortAZ; saveState(); rerenderKeepScroll(); };
+  const colAll = document.getElementById("masterCollapseAllBtn");
+  if(colAll) colAll.onclick = ()=>{ const m = groceryMaster(); (m.categories||[]).forEach(c=>masterCollapsed.add(c)); rerenderKeepScroll(); };
+  const expAll = document.getElementById("masterExpandAllBtn");
+  if(expAll) expAll.onclick = ()=>{ masterCollapsed.clear(); rerenderKeepScroll(); };
+  // Custom categories: add / rename / delete-when-empty
+  function addCategory(){
+    const inp = document.getElementById("masterNewCategory"); if(!inp) return;
+    const name = inp.value.trim(); const m = groceryMaster(); if(!name || !m) return;
+    if((m.categories||[]).some(c=>c.toLowerCase()===name.toLowerCase())){ showToast(`“${name}” already exists`); return; }
+    m.categories.push(name); saveState(); rerenderKeepScroll(); showToast(`Added category “${name}”`);
+  }
+  const addCatBtn = document.getElementById("masterAddCategoryBtn"); if(addCatBtn) addCatBtn.onclick = addCategory;
+  const newCatInp = document.getElementById("masterNewCategory");
+  if(newCatInp) newCatInp.addEventListener("keydown", e=>{ if(e.key==="Enter"){ e.preventDefault(); addCategory(); } });
+  document.querySelectorAll("[data-renamecat]").forEach(btn=> btn.onclick = (e)=>{
+    e.preventDefault(); e.stopPropagation();
+    const m = groceryMaster(); const oldName = btn.dataset.renamecat; if(!m) return;
+    const entered = window.prompt(`Rename the “${oldName}” category to:`, oldName); if(entered===null) return;
+    const newName = entered.trim(); if(!newName || newName===oldName) return;
+    const clash = (m.categories||[]).find(c=>c.toLowerCase()===newName.toLowerCase() && c!==oldName);
+    if(clash && !window.confirm(`“${clash}” already exists. Merge “${oldName}” into it?`)) return;
+    const res = renameGroceryCategory(m, oldName, newName);
+    saveState(); rerenderKeepScroll();
+    showToast(res.status==="merged" ? `Merged into “${res.name}”` : `Renamed to “${res.name}”`);
+  });
+  document.querySelectorAll("[data-delcat]").forEach(btn=> btn.onclick = (e)=>{
+    e.preventDefault(); e.stopPropagation();
+    const m = groceryMaster(); const name = btn.dataset.delcat; if(!m) return;
+    if(m.items.some(i=>(i.cat||"Other")===name)) return;     // only empty categories can be deleted
+    m.categories = m.categories.filter(c=>c!==name); saveState(); rerenderKeepScroll(); showToast(`Deleted category “${name}”`);
+  });
+  document.querySelectorAll("[data-itemcat]").forEach(sel=> sel.addEventListener("change", ()=>{
+    const m = groceryMaster(); const item = m && m.items.find(i=>i.id===sel.dataset.itemcat); if(!item) return;
+    item.cat = sel.value || "Other"; ensureGroceryCategory(m, item.cat); saveState(); rerenderKeepScroll();
+  }));
+  // Add to master (optionally also to the shopping list)
+  function submitMasterAdd(){
+    const inp = document.getElementById("masterNewItem"); if(!inp) return;
+    const text = inp.value.trim(); if(!text) return;
+    const cat = document.getElementById("masterNewCat").value || "";
+    const also = document.getElementById("masterAlsoActive").checked;
+    const r = addToMaster(text, cat);
+    if(!r) return;
+    if(also) addToActive(r.item.text, {masterId:r.item.id});
+    saveState(); rerenderKeepScroll();
+    showToast(r.created ? `Saved “${r.item.text}” in ${r.item.cat}` : `“${r.item.text}” is already in the master list`);
+    const fresh = document.getElementById("masterNewItem"); if(fresh) fresh.focus();
+  }
+  const mAdd = document.getElementById("masterAddBtn"); if(mAdd) mAdd.onclick = submitMasterAdd;
+  const mInp = document.getElementById("masterNewItem");
+  if(mInp) mInp.addEventListener("keydown", e=>{ if(e.key==="Enter"){ e.preventDefault(); submitMasterAdd(); } });
+  // Add straight to the shopping list (optionally saving to master)
+  function submitActiveAdd(){
+    const inp = document.getElementById("activeNewItem"); if(!inp) return;
+    const text = inp.value.trim(); if(!text) return;
+    const saveToMaster = document.getElementById("activeSaveMaster").checked;
+    const cat = document.getElementById("activeNewCat").value || "";
+    const res = addToActive(text, {saveToMaster, cat});
+    saveState(); rerenderKeepScroll();
+    showToast(res.status==="added" ? (res.savedToMaster ? `Added “${text}” and saved it to the master list` : `Added “${text}”`)
+      : res.status==="restored" ? `“${text}” is back on the list` : `“${text}” is already on the list`);
+    const fresh = document.getElementById("activeNewItem"); if(fresh) fresh.focus();
+  }
+  const aAdd = document.getElementById("activeAddBtn"); if(aAdd) aAdd.onclick = submitActiveAdd;
+  const aInp = document.getElementById("activeNewItem");
+  if(aInp) aInp.addEventListener("keydown", e=>{ if(e.key==="Enter"){ e.preventDefault(); submitActiveAdd(); } });
+  // Clear Completed Items: removes ticked items from the shopping list only
+  const clr = document.getElementById("clearCompletedBtn");
+  if(clr) clr.onclick = ()=>{
+    const a = groceryActive(); if(!a) return;
+    const n = a.items.filter(i=>i.done).length; if(!n) return;
+    a.items = a.items.filter(i=>!i.done);
+    saveState(); rerenderKeepScroll();
+    showToast(`Cleared ${n} completed item${n===1?'':'s'}`);
+  };
+}
 function attachListEvents(){
   attachListDragEvents();
+  attachGroceryEvents();
   document.querySelectorAll("[data-item]").forEach(el=> el.onclick=()=>{
     const [lid,iid]=el.dataset.item.split("|");
     const list=state.lists.find(l=>l.id===lid); const item=list.items.find(i=>i.id===iid);
-    item.done=!item.done; saveState(); renderTab();
+    item.done=!item.done; saveState(); rerenderKeepScroll();
   });
   document.querySelectorAll("[data-delitem]").forEach(el=> el.onclick=()=>{
     const [lid,iid]=el.dataset.delitem.split("|");
     const list=state.lists.find(l=>l.id===lid); list.items=list.items.filter(i=>i.id!==iid);
-    saveState(); renderTab();
+    saveState(); rerenderKeepScroll();
   });
   // Reorder items within a list by swapping with the neighbor above/below.
   document.querySelectorAll("[data-moveitem]").forEach(el=> el.onclick=()=>{
@@ -3769,6 +4172,7 @@ function attachHouseholdListener(){
     merged.budget=Object.assign(defaultState().budget, remote.budget||{});
     migrateChoreDates(merged);
     migrateBudget(merged);
+    migrateGrocery(merged);
     const firstLoad = !householdDataLoaded;
 
     if(!householdDataLoaded){
